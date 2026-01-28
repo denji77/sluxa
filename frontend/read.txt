@@ -1,0 +1,4 @@
+cd slusha-webapp/frontend
+npm install
+cp .env.example .env  # Add Clerk publishable key
+npm run dev
