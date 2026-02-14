@@ -68,7 +68,7 @@ export default function ChatPage() {
         // Add the actual user message (with real ID) and AI response
         return [...filtered, 
           { ...tempUserMessage, id: response.data.id - 1 }, // User message
-          response.data // AI response
+          { ...response.data, created_at: tempUserMessage.created_at } // AI response — same timestamp as user
         ]
       })
     } catch (err) {

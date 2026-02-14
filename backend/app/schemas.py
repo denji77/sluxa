@@ -52,6 +52,10 @@ class MessageBase(BaseModel):
 class MessageCreate(BaseModel):
     content: str
     mode: Optional[str] = "descriptive"  # 'descriptive' or 'normal'
+    timezone: Optional[str] = None  # IANA timezone e.g. "America/New_York"
+    local_time: Optional[str] = None  # ISO 8601 timestamp from user's browser
+    formatted_time: Optional[str] = None  # e.g. "2:30 PM"
+    formatted_date: Optional[str] = None  # e.g. "Friday, February 14, 2026"
 
 
 class Message(MessageBase):

@@ -6,7 +6,7 @@ from .routers import chat, characters, users, chub, memories, lorebooks
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Slusha Web API",
+    title="Sluxa Web API",
     description="Character AI Chat Web Application API",
     version="1.0.0"
 )
@@ -39,7 +39,7 @@ async def root():
     """Health check endpoint"""
     return {
         "status": "ok",
-        "message": "Slusha Web API is running",
+        "message": "Sluxa Web API is running",
         "version": "1.0.0"
     }
 

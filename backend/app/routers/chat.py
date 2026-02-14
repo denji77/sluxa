@@ -191,6 +191,15 @@ async def send_message(
     user_name = current_user.username or current_user.email
     char_name = chat.character.name
     
+    # Build time context from the user's browser
+    time_context = None
+    if message_data.timezone or message_data.formatted_time:
+        time_context = {
+            "timezone": message_data.timezone,
+            "formatted_time": message_data.formatted_time,
+            "formatted_date": message_data.formatted_date,
+        }
+    
     # === RAG: Retrieve relevant context ===
     rag_context = None
     if settings.rag_enabled:
@@ -264,7 +273,8 @@ async def send_message(
             user_name=user_name,
             character_name=char_name,
             mode=message_data.mode or "descriptive",
-            rag_context=rag_context
+            rag_context=rag_context,
+            time_context=time_context,
         )
     except Exception as e:
         # Rollback user message if AI fails

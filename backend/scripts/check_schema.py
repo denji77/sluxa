@@ -2,7 +2,7 @@ import sqlite3
 import os
 
 # Adjust path to where the DB lives relative to this script or execution context
-DB_PATH = "backend/slusha.db"
+DB_PATH = "backend/sluxa.db"
 
 def check_schema():
     if not os.path.exists(DB_PATH):

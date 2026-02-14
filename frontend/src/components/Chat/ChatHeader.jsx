@@ -1,15 +1,23 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Trash2, MoreVertical, Info, BookOpen, MessageCircle, Brain } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowLeft, Trash2, MoreVertical, Info, BookOpen, MessageCircle, Brain, Clock } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import CharacterInfoModal from './CharacterInfoModal'
 import MemoryInspector from './MemoryInspector'
+import { getFormattedTime, isSynced } from '../../utils/timeSync'
 
 export default function ChatHeader({ chat, onDelete, chatMode, onModeChange }) {
   const character = chat?.character
   const [showMenu, setShowMenu] = useState(false)
   const [showCharacterInfo, setShowCharacterInfo] = useState(false)
   const [showMemory, setShowMemory] = useState(false)
+  const [currentTime, setCurrentTime] = useState(getFormattedTime())
+
+  // Live clock — update every second
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(getFormattedTime()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   const isDescriptive = chatMode === 'descriptive'
 
@@ -46,6 +54,9 @@ export default function ChatHeader({ chat, onDelete, chatMode, onModeChange }) {
               <p className="text-xs text-emerald-400 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full"></span>
                 Online
+                <span className="text-gray-500 ml-1">·</span>
+                <Clock className="w-3 h-3 text-gray-400" />
+                <span className={`text-gray-400 ${isSynced() ? '' : 'opacity-60'}`}>{currentTime}</span>
               </p>
             </div>
           </div>

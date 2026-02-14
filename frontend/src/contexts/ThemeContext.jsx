@@ -52,14 +52,14 @@ const ThemeContext = createContext()
 
 export function ThemeProvider({ children }) {
   const [currentTheme, setCurrentTheme] = useState(() => {
-    const saved = localStorage.getItem('slusha-theme')
+    const saved = localStorage.getItem('sluxa-theme')
     return saved || 'cosmic'
   })
 
   const theme = themes[currentTheme]
 
   useEffect(() => {
-    localStorage.setItem('slusha-theme', currentTheme)
+    localStorage.setItem('sluxa-theme', currentTheme)
     
     // Apply CSS variables
     const root = document.documentElement

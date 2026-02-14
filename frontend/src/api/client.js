@@ -1,5 +1,7 @@
 import axios from 'axios'
 
+import { getTimeContext } from '../utils/timeSync'
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 // Create axios instance
@@ -35,7 +37,7 @@ export const deleteChat = (id) => api.delete(`/chats/${id}`)
 
 // Messages
 export const sendMessage = (chatId, content, mode = 'descriptive') => 
-  api.post(`/chats/${chatId}/messages`, { content, mode })
+  api.post(`/chats/${chatId}/messages`, { content, mode, ...getTimeContext() })
 export const getMessages = (chatId, skip = 0, limit = 50) => 
   api.get(`/chats/${chatId}/messages`, { params: { skip, limit } })
 

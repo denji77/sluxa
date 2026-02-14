@@ -1,6 +1,6 @@
 """
 Chub.ai API integration for fetching characters.
-Ported from slusha-master/lib/charhub/api.ts
+Ported from sluxa-master/lib/charhub/api.ts
 """
 
 import httpx

@@ -1,8 +1,8 @@
-# Slusha Web App 🤖✨
+# Sluxa Web App 🤖✨
 
 A modern, immersive character AI chat platform. Experience deep roleplay and casual conversations with AI characters that remember you, powered by Google Gemini and a sophisticated memory system.
 
-![Slusha Web App Banner](https://via.placeholder.com/1200x400?text=Slusha+Web+App+Preview)
+![Sluxa Web App Banner](https://via.placeholder.com/1200x400?text=Sluxa+Web+App+Preview)
 
 ## ✨ Core Features
 
@@ -85,7 +85,7 @@ Rename `.env.example` in both folders to `.env` and fill in your keys:
 *   `GOOGLE_API_KEY`: Your Google Gemini API key.
 *   `AI_MODEL`: `gemini-2.5-flash-lite` (default).
 *   `PINECONE_API_KEY`: Your Pinecone API key.
-*   `PINECONE_INDEX_NAME`: Your Pinecone index name (default: `slusha`).
+*   `PINECONE_INDEX_NAME`: Your Pinecone index name (default: `sluxa`).
 *   `VITE_CLERK_PUBLISHABLE_KEY`: From your Clerk dashboard.
 
 ## 🤝 Contributing

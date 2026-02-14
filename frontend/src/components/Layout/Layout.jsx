@@ -44,7 +44,7 @@ export default function Layout({ children }) {
           </div>
           <div className="flex items-center gap-2">
             <Loader2 className="w-5 h-5 text-purple-400 animate-spin" />
-            <p className="text-gray-400 font-medium">Loading Slusha...</p>
+            <p className="text-gray-400 font-medium">Loading Sluxa...</p>
           </div>
         </motion.div>
       </div>
@@ -83,7 +83,7 @@ export default function Layout({ children }) {
                 </div>
                 <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-[var(--theme-primary)] via-[var(--theme-secondary)] to-[var(--theme-accent)] blur-lg opacity-40 group-hover:opacity-60 transition-opacity" />
               </motion.div>
-              <span className="text-xl font-bold gradient-text">Slusha</span>
+              <span className="text-xl font-bold gradient-text">Sluxa</span>
             </Link>
 
             {/* Navigation */}

@@ -1,6 +1,6 @@
 """
 AI Chat logic using Google Gemini (google.genai SDK).
-Ported and adapted from slusha-master/lib/telegram/handlers/ai.ts
+Ported and adapted from sluxa-master/lib/telegram/handlers/ai.ts
 Enhanced with RAG (Retrieval-Augmented Generation) for semantic memory.
 """
 
@@ -47,6 +47,7 @@ async def generate_response(
     character_name: Optional[str] = None,
     mode: str = "descriptive",
     rag_context: Optional[str] = None,
+    time_context: Optional[dict] = None,
 ) -> str:
     """
     Generate an AI response using Google Gemini.
@@ -59,6 +60,7 @@ async def generate_response(
         character_name: Optional character's name
         mode: Chat mode - 'descriptive' for roleplay or 'normal' for casual chat
         rag_context: Optional RAG-retrieved context to include
+        time_context: Optional dict with user's local time info
     
     Returns:
         The AI-generated response string
@@ -69,7 +71,8 @@ async def generate_response(
         user_name=user_name,
         char_name=character_name,
         is_private=True,
-        mode=mode
+        mode=mode,
+        time_context=time_context,
     )
     
     # Add RAG context to system prompt if available

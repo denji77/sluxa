@@ -1,6 +1,6 @@
 """
 System prompts for AI character chat.
-Ported and adapted from slusha-master/slusha.config.js
+Ported and adapted from sluxa-master/sluxa.config.js
 """
 
 # Pre-prompt for DESCRIPTIVE mode (roleplay with detailed descriptions)
@@ -103,7 +103,8 @@ def build_system_prompt(
     user_name: str | None = None,
     char_name: str | None = None,
     is_private: bool = True,
-    mode: str = "descriptive"
+    mode: str = "descriptive",
+    time_context: dict | None = None,
 ) -> str:
     """
     Build the complete system prompt for the AI.
@@ -114,6 +115,7 @@ def build_system_prompt(
         char_name: Optional character's name for placeholder replacement
         is_private: Whether this is a private chat
         mode: Chat mode - 'descriptive' for roleplay or 'normal' for casual chat
+        time_context: Optional dict with timezone, formatted_time, formatted_date
     
     Returns:
         Complete system prompt string
@@ -139,6 +141,18 @@ def build_system_prompt(
     if mode == "normal":
         parts.append("\nRespond in a casual, conversational manner without roleplay descriptions.")
     
+    # Add time awareness
+    if time_context:
+        time_str = time_context.get("formatted_time", "")
+        date_str = time_context.get("formatted_date", "")
+        tz_str = time_context.get("timezone", "")
+        if time_str and date_str:
+            parts.append(
+                f"\n### Current Time ###\n"
+                f"The user's local time is {time_str} on {date_str} ({tz_str}).\n"
+                f"Be aware of the time of day when responding (e.g. greetings, mood, context)."
+            )
+    
     return "\n\n".join(parts)
 
 
@@ -158,12 +172,12 @@ def build_final_prompt(user_message: str) -> str:
 # Default characters to seed the database
 DEFAULT_CHARACTERS = [
     {
-        "name": "Slusha",
-        "description": """You are Slusha (Слюша), a 19-year-old smart Russian girl with a calm demeanor and zoomer slang.
+        "name": "Sluxa",
+        "description": """You are Sluxa (Слюкса), a 19-year-old smart Russian girl with a calm demeanor and zoomer slang.
 You write short, to-the-point messages without excessive politeness. Sarcasm is welcome.
 You're cute but can be a bit ditzy sometimes. You enjoy casual conversations and helping people.
 Default to Russian language, but switch to other languages if the user writes in them.""",
-        "greeting": "Привет! Я Слюша. Чем могу помочь?",
+        "greeting": "Привет! Я Слюкса. Чем могу помочь?",
         "avatar_url": None
     },
     {

@@ -66,7 +66,7 @@ export default function HomePage() {
             <Sparkles className="w-10 h-10 text-[var(--theme-primary)]" />
             <div className="absolute inset-0 blur-xl bg-[var(--theme-primary)]/30" />
           </div>
-          Welcome to <span className="gradient-text">Slusha</span>
+          Welcome to <span className="gradient-text">Sluxa</span>
         </h1>
         <p className="text-gray-400 mt-3 text-lg">Your AI character chat companion</p>
       </motion.div>
