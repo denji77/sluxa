@@ -71,7 +71,7 @@ export default function ChatHeader({ chat, onDelete, chatMode, onModeChange }) {
             <Brain className="w-5 h-5" />
           </button>
 
-          {/* Chat Mode Toggle */}
+          {/* Chat Mode Toggle — Neubrutalism style */}
           <button
             type="button"
             onClick={(e) => {
@@ -84,18 +84,22 @@ export default function ChatHeader({ chat, onDelete, chatMode, onModeChange }) {
                 console.error('onModeChange is not defined!')
               }
             }}
-            className="flex items-center justify-center gap-1.5 px-3 h-10 rounded-xl bg-gradient-to-br from-[var(--theme-primary)]/30 to-[var(--theme-accent)]/30 border border-[var(--theme-primary)]/30 hover:border-[var(--theme-primary)]/60 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+            className={`flex items-center justify-center gap-1.5 px-3 h-9 font-medium text-white transition-all cursor-pointer rounded-lg ${
+              isDescriptive
+                ? 'bg-purple-500 shadow-[3px_3px_0px_rgba(168,85,247,0.4)] hover:shadow-none hover:translate-x-[3px] hover:translate-y-[3px]'
+                : 'bg-pink-500 shadow-[3px_3px_0px_rgba(236,72,153,0.4)] hover:shadow-none hover:translate-x-[3px] hover:translate-y-[3px]'
+            }`}
             title={isDescriptive ? 'Switch to Normal mode' : 'Switch to Descriptive mode'}
           >
             {isDescriptive ? (
               <>
-                <BookOpen className="w-4 h-4 text-[var(--theme-primary)]" />
-                <span className="text-xs text-[var(--theme-primary)] font-medium hidden sm:inline">RP</span>
+                <BookOpen className="w-4 h-4" />
+                <span className="text-xs font-semibold hidden sm:inline">RP</span>
               </>
             ) : (
               <>
-                <MessageCircle className="w-4 h-4 text-[var(--theme-accent)]" />
-                <span className="text-xs text-[var(--theme-accent)] font-medium hidden sm:inline">Chat</span>
+                <MessageCircle className="w-4 h-4" />
+                <span className="text-xs font-semibold hidden sm:inline">Chat</span>
               </>
             )}
           </button>
