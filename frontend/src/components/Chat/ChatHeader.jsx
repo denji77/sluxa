@@ -1,13 +1,15 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Trash2, MoreVertical, Info, BookOpen, MessageCircle } from 'lucide-react'
+import { ArrowLeft, Trash2, MoreVertical, Info, BookOpen, MessageCircle, Brain } from 'lucide-react'
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import CharacterInfoModal from './CharacterInfoModal'
+import MemoryInspector from './MemoryInspector'
 
 export default function ChatHeader({ chat, onDelete, chatMode, onModeChange }) {
   const character = chat?.character
   const [showMenu, setShowMenu] = useState(false)
   const [showCharacterInfo, setShowCharacterInfo] = useState(false)
+  const [showMemory, setShowMemory] = useState(false)
 
   const isDescriptive = chatMode === 'descriptive'
 
@@ -50,6 +52,14 @@ export default function ChatHeader({ chat, onDelete, chatMode, onModeChange }) {
         </div>
 
         <div className="flex items-center gap-2 relative z-20">
+          <button
+            onClick={() => setShowMemory(true)}
+            className="p-2 text-gray-400 hover:text-purple-400 hover:bg-white/5 rounded-xl transition-all"
+            title="View Neural Memory"
+          >
+            <Brain className="w-5 h-5" />
+          </button>
+
           {/* Chat Mode Toggle */}
           <button
             type="button"
@@ -165,6 +175,11 @@ export default function ChatHeader({ chat, onDelete, chatMode, onModeChange }) {
         character={character}
         isOpen={showCharacterInfo}
         onClose={() => setShowCharacterInfo(false)}
+      />
+      <MemoryInspector
+        chatId={chat?.id}
+        isOpen={showMemory}
+        onClose={() => setShowMemory(false)}
       />
     </div>
   )

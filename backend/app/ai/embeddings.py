@@ -1,20 +1,20 @@
 """
-Embedding generation using OpenAI's text-embedding API.
+Embedding generation using Google Gemini (google.genai SDK).
 Used for semantic search in the RAG system.
 """
 
-from openai import AsyncOpenAI
+from google import genai
+from google.genai import types
 from typing import List, Optional
 import numpy as np
-from functools import lru_cache
 import hashlib
 
 from ..config import get_settings
 
 settings = get_settings()
 
-# Initialize OpenAI client
-client = AsyncOpenAI(api_key=settings.openai_api_key)
+# Initialize Gemini client
+_client = genai.Client(api_key=settings.google_api_key)
 
 # Cache for embeddings to avoid re-computing
 _embedding_cache: dict = {}
@@ -27,7 +27,7 @@ def _get_cache_key(text: str) -> str:
 
 async def generate_embedding(text: str, use_cache: bool = True) -> np.ndarray:
     """
-    Generate an embedding for a single text using OpenAI's embedding model.
+    Generate an embedding for a single text using Gemini.
     
     Args:
         text: The text to embed
@@ -46,114 +46,66 @@ async def generate_embedding(text: str, use_cache: bool = True) -> np.ndarray:
         return _embedding_cache[cache_key]
     
     try:
-        # Generate embedding using OpenAI's API
-        response = await client.embeddings.create(
+        # Generate embedding using new google.genai SDK
+        result = await _client.aio.models.embed_content(
             model=settings.embedding_model,
-            input=text
+            contents=text,
+            config=types.EmbedContentConfig(
+                task_type="RETRIEVAL_DOCUMENT",
+                output_dimensionality=settings.embedding_dimensions,
+            ),
         )
         
-        embedding = np.array(response.data[0].embedding, dtype=np.float32)
+        vector = np.array(result.embeddings[0].values, dtype=np.float32)
         
-        # Cache the result
+        # Cache result
         if use_cache:
-            _embedding_cache[cache_key] = embedding
-        
-        return embedding
+            _embedding_cache[cache_key] = vector
+            
+        return vector
         
     except Exception as e:
         print(f"Embedding generation error: {e}")
-        # Return zero vector on error
+        # Return zero vector on failure to not crash app
         return np.zeros(settings.embedding_dimensions, dtype=np.float32)
 
 
 async def generate_query_embedding(text: str) -> np.ndarray:
     """
-    Generate an embedding optimized for query/search.
-    OpenAI uses the same model for both, but we keep the interface consistent.
-    
-    Args:
-        text: The query text to embed
-    
-    Returns:
-        numpy array of the embedding vector
+    Generate embedding specifically for search queries.
+    Google distinguishes between document and query embeddings.
     """
     if not text or not text.strip():
         return np.zeros(settings.embedding_dimensions, dtype=np.float32)
-    
+
     try:
-        response = await client.embeddings.create(
+        result = await _client.aio.models.embed_content(
             model=settings.embedding_model,
-            input=text
+            contents=text,
+            config=types.EmbedContentConfig(
+                task_type="RETRIEVAL_QUERY",
+                output_dimensionality=settings.embedding_dimensions,
+            ),
         )
-        
-        return np.array(response.data[0].embedding, dtype=np.float32)
-        
+        return np.array(result.embeddings[0].values, dtype=np.float32)
     except Exception as e:
-        print(f"Query embedding generation error: {e}")
+        print(f"Query embedding error: {e}")
         return np.zeros(settings.embedding_dimensions, dtype=np.float32)
 
 
 async def generate_embeddings_batch(texts: List[str], use_cache: bool = True) -> List[np.ndarray]:
     """
     Generate embeddings for multiple texts.
-    OpenAI supports batch embedding in a single API call.
     
     Args:
         texts: List of texts to embed
-        use_cache: Whether to use cached embeddings
     
     Returns:
-        List of numpy arrays (embedding vectors)
+        List of embedding vectors
     """
-    embeddings = [None] * len(texts)
-    texts_to_embed = []
-    indices_to_embed = []
-    
-    # Check cache first
-    for i, text in enumerate(texts):
-        if not text or not text.strip():
-            embeddings[i] = np.zeros(settings.embedding_dimensions, dtype=np.float32)
-        else:
-            cache_key = _get_cache_key(text)
-            if use_cache and cache_key in _embedding_cache:
-                embeddings[i] = _embedding_cache[cache_key]
-            else:
-                texts_to_embed.append(text)
-                indices_to_embed.append(i)
-    
-    # Generate embeddings for uncached texts in a single batch call
-    if texts_to_embed:
-        try:
-            response = await client.embeddings.create(
-                model=settings.embedding_model,
-                input=texts_to_embed
-            )
-            
-            for j, (idx, text) in enumerate(zip(indices_to_embed, texts_to_embed)):
-                embedding = np.array(response.data[j].embedding, dtype=np.float32)
-                embeddings[idx] = embedding
-                
-                # Cache
-                if use_cache:
-                    cache_key = _get_cache_key(text)
-                    _embedding_cache[cache_key] = embedding
-                    
-        except Exception as e:
-            print(f"Batch embedding error: {e}")
-            # Fill remaining with zeros
-            for idx in indices_to_embed:
-                if embeddings[idx] is None:
-                    embeddings[idx] = np.zeros(settings.embedding_dimensions, dtype=np.float32)
+    embeddings = []
+    for text in texts:
+        emb = await generate_embedding(text, use_cache=use_cache)
+        embeddings.append(emb)
     
     return embeddings
-
-
-def clear_embedding_cache():
-    """Clear the embedding cache."""
-    global _embedding_cache
-    _embedding_cache = {}
-
-
-def get_cache_size() -> int:
-    """Get the number of cached embeddings."""
-    return len(_embedding_cache)

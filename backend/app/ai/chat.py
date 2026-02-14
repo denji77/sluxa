@@ -1,10 +1,11 @@
 """
-AI Chat logic using OpenAI GPT-5 nano.
+AI Chat logic using Google Gemini (google.genai SDK).
 Ported and adapted from slusha-master/lib/telegram/handlers/ai.ts
 Enhanced with RAG (Retrieval-Augmented Generation) for semantic memory.
 """
 
-from openai import AsyncOpenAI
+from google import genai
+from google.genai import types
 from typing import List, Optional
 from datetime import datetime
 
@@ -14,27 +15,27 @@ from .prompts import build_system_prompt, build_final_prompt, replace_placeholde
 
 settings = get_settings()
 
-# Initialize OpenAI client
-client = AsyncOpenAI(api_key=settings.openai_api_key)
+# Initialize Gemini client (instance-based)
+_client = genai.Client(api_key=settings.google_api_key)
 
 
-def format_history_for_openai(messages: List[ChatMessage]) -> List[dict]:
+def format_history_for_gemini(messages: List[ChatMessage]) -> List[types.Content]:
     """
-    Convert chat messages to OpenAI's expected format.
+    Convert chat messages to Gemini's expected Content format.
     
     Args:
         messages: List of ChatMessage objects
     
     Returns:
-        List of dicts in OpenAI format
+        List of Content objects in Gemini format
     """
     history = []
     for msg in messages:
-        role = "user" if msg.role == "user" else "assistant"
-        history.append({
-            "role": role,
-            "content": msg.content
-        })
+        role = "user" if msg.role == "user" else "model"
+        history.append(types.Content(
+            role=role,
+            parts=[types.Part(text=msg.content)]
+        ))
     return history
 
 
@@ -48,7 +49,7 @@ async def generate_response(
     rag_context: Optional[str] = None,
 ) -> str:
     """
-    Generate an AI response using OpenAI GPT-5 nano.
+    Generate an AI response using Google Gemini.
     
     Args:
         user_message: The user's message
@@ -75,33 +76,28 @@ async def generate_response(
     if rag_context:
         system_prompt = f"{system_prompt}\n\n{rag_context}"
     
-    # Format chat history for OpenAI
+    # Format chat history for Gemini
     recent_history = chat_history[-settings.max_messages_history:]
-    openai_history = format_history_for_openai(recent_history)
-    
-    # Build messages array with system prompt
-    messages = [
-        {"role": "system", "content": system_prompt}
-    ]
-    
-    # Add conversation history
-    messages.extend(openai_history)
-    
-    # Add current user message
-    messages.append({"role": "user", "content": user_message})
+    gemini_history = format_history_for_gemini(recent_history)
+
+    # Create async chat with system instruction and history
+    chat = _client.aio.chats.create(
+        model=settings.ai_model,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=settings.ai_temperature,
+            top_p=settings.ai_top_p,
+            max_output_tokens=settings.ai_max_tokens,
+        ),
+        history=gemini_history,
+    )
     
     # Generate response
     try:
-        response = await client.chat.completions.create(
-            model=settings.ai_model,
-            messages=messages,
-            temperature=settings.ai_temperature,
-            top_p=settings.ai_top_p,
-            max_tokens=settings.ai_max_tokens,
-        )
+        response = await chat.send_message(user_message)
         
         # Extract text from response
-        response_text = response.choices[0].message.content.strip()
+        response_text = response.text.strip()
         
         # Clean up response if needed
         # Remove any potential system message leakage
@@ -124,6 +120,15 @@ async def generate_response(
     except Exception as e:
         # Log the error and return a fallback response
         print(f"AI generation error: {e}")
+        
+        error_str = str(e).lower()
+        # Handle Gemini safety filter blocks
+        if any(keyword in error_str for keyword in [
+            "blocked", "safety", "finish_reason", "prompt_feedback",
+            "harm_category", "block_reason"
+        ]):
+            return "*I cannot respond to that.* (Safety Filter Triggered)"
+             
         raise Exception(f"Failed to generate response: {str(e)}")
 
 
@@ -147,13 +152,11 @@ The chat is with a character named {character_name}.
 Return ONLY the title, nothing else."""
     
     try:
-        response = await client.chat.completions.create(
+        response = await _client.aio.models.generate_content(
             model=settings.ai_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=50
+            contents=prompt,
         )
-        title = response.choices[0].message.content.strip().strip('"').strip("'")
+        title = response.text.strip().strip('"').strip("'")
         return title[:100]  # Limit length
     except Exception:
         # Fallback to truncated message

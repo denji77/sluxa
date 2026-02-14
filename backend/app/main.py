@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_db
-from .routers import chat, characters, users, chub
+from .routers import chat, characters, users, chub, memories, lorebooks
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -55,3 +55,5 @@ app.include_router(users.router, prefix="/api")
 app.include_router(characters.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(chub.router, prefix="/api")
+app.include_router(memories.router, prefix="/api")
+app.include_router(lorebooks.router, prefix="/api")

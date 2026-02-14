@@ -1,5 +1,5 @@
 """
-Memory Manager - Coordinates between SQLite and FAISS for message storage.
+Memory Manager - Coordinates between SQLite and Pinecone for message storage.
 Handles embedding generation and vector store updates.
 """
 
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..models import Message, Chat
 from ..ai.embeddings import generate_embedding, generate_embeddings_batch
-from .vector_store import get_vector_store, FAISSVectorStore
+from .vector_store import get_vector_store, PineconeVectorStore
 
 settings = get_settings()
 
@@ -18,7 +18,7 @@ settings = get_settings()
 class MemoryManager:
     """
     Manages the memory layer for chat messages.
-    Coordinates SQLite storage with FAISS vector indexing.
+    Coordinates SQLite storage with Pinecone vector indexing.
     """
     
     def __init__(self, db: Session):
@@ -145,7 +145,7 @@ class MemoryManager:
 
 async def ensure_chat_indexed(db: Session, chat_id: int) -> bool:
     """
-    Ensure a chat has its messages indexed in FAISS.
+    Ensure a chat has its messages indexed in Pinecone.
     Called lazily when RAG is needed.
     
     Args:

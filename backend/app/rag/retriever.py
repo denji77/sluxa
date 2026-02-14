@@ -24,6 +24,7 @@ class RetrievedContext:
     combined_messages: List[ChatMessage]  # Deduplicated combination
     rag_enabled: bool
     retrieval_scores: Dict[int, float]    # message_id -> similarity score
+    lorebook_context: List[str] = None    # World Info entries triggered by keywords
 
 
 class ContextRetriever:
@@ -57,6 +58,27 @@ class ContextRetriever:
         """
         from ..ai.prompts import replace_placeholders
         
+        # Get chat info for Lorebooks
+        chat = self.db.query(Chat).filter(Chat.id == chat_id).first()
+        
+        # 0. Retrieve World Info (Lorebooks) - Injected as "System" context implicitly later
+        # We need a way to return this string. For now, we will update the retrieved context model
+        # or just append a special system message to relevant_messages
+        lorebook_context = []
+        if chat and chat.character and chat.character.lorebook:
+            for entry in chat.character.lorebook.entries:
+                if not entry.is_enabled:
+                    continue
+                # Check for keywords in user message (case-insensitive)
+                keywords = [k.strip().lower() for k in entry.keys.split(",")]
+                msg_lower = user_message.lower()
+                
+                # Check if ANY keyword is in the message
+                for key in keywords:
+                    if key and key in msg_lower:
+                        lorebook_context.append(f"[World Info: {entry.content}]")
+                        break
+        
         # Get recent messages (always include for recency bias)
         recent_messages = self._get_recent_messages(
             chat_id,
@@ -70,9 +92,10 @@ class ContextRetriever:
             return RetrievedContext(
                 relevant_messages=[],
                 recent_messages=recent_messages,
-                combined_messages=recent_messages,
+                combined_messages=recent_messages[:],
                 rag_enabled=False,
-                retrieval_scores={}
+                retrieval_scores={},
+                lorebook_context=lorebook_context if lorebook_context else None
             )
         
         # Perform semantic search
@@ -97,7 +120,8 @@ class ContextRetriever:
             recent_messages=recent_messages,
             combined_messages=combined,
             rag_enabled=True,
-            retrieval_scores=scores
+            retrieval_scores=scores,
+            lorebook_context=lorebook_context if lorebook_context else None
         )
     
     def _get_recent_messages(
@@ -223,25 +247,33 @@ class ContextRetriever:
 
 def format_context_for_prompt(context: RetrievedContext) -> str:
     """
-    Format retrieved context for inclusion in the AI prompt.
+    Format retrieved context for inclusion in the AI system prompt.
+    Includes both RAG memories and Lorebook (World Info) entries.
     
     Args:
         context: The retrieved context
     
     Returns:
-        Formatted string for the prompt
+        Formatted string for the system prompt
     """
-    if not context.rag_enabled or not context.relevant_messages:
-        return ""
+    sections = []
     
-    lines = ["[Relevant past conversation context:]"]
+    # 1. Lorebook / World Info (always include if present)
+    if context.lorebook_context:
+        sections.append("[World Info / Lore:]")
+        for entry in context.lorebook_context:
+            # Strip the [World Info: ...] wrapper if present for cleaner injection
+            clean = entry.replace("[World Info: ", "").rstrip("]")
+            sections.append(f"- {clean}")
+        sections.append("[End of World Info. Treat these facts as established canon.]")
     
-    for msg in context.relevant_messages[:5]:  # Limit to 5 for prompt size
-        role_label = "User" if msg.role == "user" else "Character"
-        # Truncate long messages
-        content = msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
-        lines.append(f"{role_label}: {content}")
+    # 2. RAG memories
+    if context.rag_enabled and context.relevant_messages:
+        sections.append("[Relevant past conversation context:]")
+        for msg in context.relevant_messages[:5]:  # Limit to 5 for prompt size
+            role_label = "User" if msg.role == "user" else "Character"
+            content = msg.content[:500] + "..." if len(msg.content) > 500 else msg.content
+            sections.append(f"{role_label}: {content}")
+        sections.append("[End of past context. Continue the conversation naturally.]")
     
-    lines.append("[End of past context. Continue the conversation naturally.]")
-    
-    return "\n".join(lines)
+    return "\n".join(sections) if sections else ""

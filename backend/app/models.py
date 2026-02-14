@@ -17,6 +17,38 @@ class User(Base):
     
     # Relationships
     chats = relationship("Chat", back_populates="user", cascade="all, delete-orphan")
+    lorebooks = relationship("Lorebook", back_populates="user", cascade="all, delete-orphan")
+
+
+class Lorebook(Base):
+    """Collection of world info entries"""
+    __tablename__ = "lorebooks"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    description = Column(String(500), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", back_populates="lorebooks")
+    entries = relationship("LorebookEntry", back_populates="lorebook", cascade="all, delete-orphan")
+    characters = relationship("Character", back_populates="lorebook")
+
+
+class LorebookEntry(Base):
+    """Individual world info entry triggered by keywords"""
+    __tablename__ = "lorebook_entries"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    lorebook_id = Column(Integer, ForeignKey("lorebooks.id"), nullable=False)
+    keys = Column(String(500), nullable=False)  # Comma-separated keywords
+    content = Column(Text, nullable=False)      # The lore to inject
+    is_enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    lorebook = relationship("Lorebook", back_populates="entries")
 
 
 class Character(Base):
@@ -30,10 +62,12 @@ class Character(Base):
     greeting = Column(Text, nullable=True)  # Initial message from character
     is_default = Column(Boolean, default=False)  # Built-in character
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    lorebook_id = Column(Integer, ForeignKey("lorebooks.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     created_by = relationship("User")
+    lorebook = relationship("Lorebook", back_populates="characters")
     chats = relationship("Chat", back_populates="character")
 
 

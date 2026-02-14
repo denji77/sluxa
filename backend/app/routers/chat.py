@@ -147,7 +147,7 @@ async def delete_chat(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete a chat and all its messages (including FAISS vectors)"""
+    """Delete a chat and all its messages (including Pinecone vectors)"""
     chat = db.query(Chat).filter(
         Chat.id == chat_id,
         Chat.user_id == current_user.id
@@ -156,13 +156,13 @@ async def delete_chat(
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     
-    # Clean up FAISS index for this chat
+    # Clean up Pinecone vectors for this chat
     if settings.rag_enabled:
         try:
             memory_manager = MemoryManager(db)
             await memory_manager.delete_chat_memory(chat_id)
         except Exception as e:
-            print(f"Error deleting FAISS index for chat {chat_id}: {e}")
+            print(f"Error deleting Pinecone vectors for chat {chat_id}: {e}")
     
     db.delete(chat)
     db.commit()
