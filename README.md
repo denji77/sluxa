@@ -88,6 +88,24 @@ Rename `.env.example` in both folders to `.env` and fill in your keys:
 *   `PINECONE_INDEX_NAME`: Your Pinecone index name (default: `sluxa`).
 *   `VITE_CLERK_PUBLISHABLE_KEY`: From your Clerk dashboard.
 
+## 🗺️ Roadmap & Future Plans
+
+### 🎙️ Voice Integration (v2.0)
+*   **Kani-TTS-2 Model**: Character voice synthesis for AI responses.
+    *   Each character will have a unique voice profile (pitch, speed, accent).
+    *   Select voices will be manually configured initially for featured characters.
+    *   Planned Features:
+        *   🔊 Play button on AI message bubbles to hear the character speak.
+        *   🎚️ Voice customization in character creation (voice model selection).
+        *   📥 Audio caching for faster playback of repeated phrases.
+*   **Planned Implementation**: Q2 2026
+
+### 🔮 Other Planned Features
+*   **Group Chats**: Multi-character conversations in a single chat room.
+*   **Image Generation**: AI-powered character art using Stable Diffusion.
+*   **Export/Import**: Save and share character cards in JSON format.
+*   **Advanced Memory Controls**: Tag-based memory organization and selective wipe.
+
 ## 🤝 Contributing
 1.  Fork the repository
 2.  Create your feature branch (`git checkout -b feature/amazing-feature`)
