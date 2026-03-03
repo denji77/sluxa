@@ -56,8 +56,8 @@ function SingleCharTyping({ charName, charAvatar, charId }) {
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 const sleep = (ms) => new Promise(res => setTimeout(res, ms))
-const typingDuration = (content = '') =>
-    Math.min(3000, Math.max(1000, content.length * 18))
+const typingDuration = (content = '', multiplier = 1.0) =>
+    Math.min(3000, Math.max(1000, content.length * 18)) * multiplier
 
 // ─── GroupChatPage ───────────────────────────────────────────────────────
 
@@ -70,6 +70,7 @@ export default function GroupChatPage() {
     const [groupChat, setGroupChat] = useState(null)
     const [messages, setMessages] = useState([])
     const [reactions, setReactions] = useState({}) // { messageId: [{emoji, charName, charId}] }
+    const [readReceipts, setReadReceipts] = useState({}) // { messageId: [{charName, charId}] }
     const [loading, setLoading] = useState(true)
     const [input, setInput] = useState('')
     const [error, setError] = useState(null)
@@ -102,7 +103,7 @@ export default function GroupChatPage() {
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, [messages, typingChar])
+    }, [messages, typingChars])
 
     // ── Staggered reveal queue with hesitation, reaction, interrupt ──────
 
@@ -114,13 +115,14 @@ export default function GroupChatPage() {
             // ── HESITATION: show typing, wait, hide, NO message ──
             if (msg.role === 'hesitation') {
                 await sleep(preDelay)
-                setTypingChar({
+                const typingObj = {
                     charName: msg.character_name,
                     charAvatar: msg.character_avatar,
                     charId: msg.character_id,
-                })
+                }
+                setTypingChars(prev => [...prev, typingObj])
                 await sleep(msg.hesitation_ms || 1500)
-                setTypingChar(null)
+                setTypingChars(prev => prev.filter(c => c.charId !== msg.character_id))
                 continue
             }
 
@@ -144,6 +146,25 @@ export default function GroupChatPage() {
                 continue
             }
 
+            // ── LEFT ON READ: visual indicator, no typing, no response ──
+            if (msg.role === 'left_on_read') {
+                await sleep(preDelay)
+                const targetId = msg.reacting_to_message_id
+                if (targetId) {
+                    setReadReceipts(prev => ({
+                        ...prev,
+                        [targetId]: [
+                            ...(prev[targetId] || []),
+                            {
+                                charName: msg.character_name,
+                                charId: msg.character_id,
+                            },
+                        ],
+                    }))
+                }
+                continue
+            }
+
             // ── INTERRUPT: show immediately, mid-typing ──
             if (msg.interrupt) {
                 // Don't wait for pre-delay, pop in immediately
@@ -153,15 +174,30 @@ export default function GroupChatPage() {
             }
 
             // ── NORMAL RESPOND: delay → typing → message ──
-            await sleep(preDelay)
-            setTypingChar({
-                charName: msg.character_name,
-                charAvatar: msg.character_avatar,
-                charId: msg.character_id,
-            })
-            await sleep(typingDuration(msg.content))
-            setTypingChar(null)
-            setMessages(prev => [...prev, msg])
+            const processMessage = async () => {
+                await sleep(preDelay)
+                const typingObj = {
+                    charName: msg.character_name,
+                    charAvatar: msg.character_avatar,
+                    charId: msg.character_id,
+                }
+                setTypingChars(prev => [...prev, typingObj])
+
+                await sleep(typingDuration(msg.content, msg.typing_multiplier))
+
+                setTypingChars(prev => prev.filter(c => c.charId !== msg.character_id))
+                setMessages(prev => {
+                    if (prev.some(m => m.id === msg.id)) return prev
+                    return [...prev, msg]
+                })
+            }
+
+            if (msg.concurrent) {
+                processMessage() // DO NOT await, run in background
+                continue
+            } else {
+                await processMessage() // Wait for it to finish
+            }
         }
     }, [])
 
@@ -244,13 +280,14 @@ export default function GroupChatPage() {
                 const msg = res.data
                 if (msg && msg.id) {
                     // Show typing indicator, then reveal
-                    setTypingChar({
+                    const typingObj = {
                         charName: msg.character_name,
                         charAvatar: msg.character_avatar,
                         charId: msg.character_id,
-                    })
-                    await sleep(typingDuration(msg.content || ''))
-                    setTypingChar(null)
+                    }
+                    setTypingChars(prev => [...prev, typingObj])
+                    await sleep(typingDuration(msg.content || '', msg.typing_multiplier))
+                    setTypingChars(prev => prev.filter(c => c.charId !== msg.character_id))
                     setMessages(prev => [...prev, msg])
                 }
             } catch {
@@ -270,7 +307,7 @@ export default function GroupChatPage() {
         }
     }, [loading, groupChat, resetAmbientTimer])
 
-    const isSending = !!typingChar || sendLockRef.current
+    const isSending = typingChars.length > 0 || sendLockRef.current
 
     // ── Render ──────────────────────────────────────────────────────────
 
@@ -297,7 +334,7 @@ export default function GroupChatPage() {
             />
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px 0', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {messages.length === 0 && !typingChar && (
+                {messages.length === 0 && typingChars.length === 0 && (
                     <div style={{
                         flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
                         flexDirection: 'column', gap: 8, color: '#4b5563',
@@ -313,23 +350,30 @@ export default function GroupChatPage() {
                         const next = messages[i + 1]
                         const isLastInGroup = !next || next.character_id !== msg.character_id
                         const msgReactions = reactions[msg.id] || []
+                        const msgReadReceipts = readReceipts[msg.id] || []
                         return (
                             <GroupMessageBubble
                                 key={msg.id}
                                 message={msg}
                                 isLastInGroup={isLastInGroup}
                                 reactions={msgReactions}
+                                readReceipts={msgReadReceipts}
                             />
                         )
                     })}
                 </AnimatePresence>
 
-                {typingChar && (
-                    <SingleCharTyping
-                        charName={typingChar.charName}
-                        charAvatar={typingChar.charAvatar}
-                        charId={typingChar.charId}
-                    />
+                {typingChars.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {typingChars.map(tc => (
+                            <SingleCharTyping
+                                key={tc.charId}
+                                charName={tc.charName}
+                                charAvatar={tc.charAvatar}
+                                charId={tc.charId}
+                            />
+                        ))}
+                    </div>
                 )}
                 <div ref={bottomRef} />
             </div>

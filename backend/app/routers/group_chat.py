@@ -13,6 +13,7 @@ Group Chat Router — Conversation Intelligence System.
 
 import json
 import random
+import re
 import traceback
 from datetime import datetime
 from typing import List, Optional
@@ -153,10 +154,10 @@ def _serialize_message(msg: GroupMessage, **extra) -> dict:
         "responding_to_char_name": None,
         "responding_to_preview": None,
         "hesitation_ms": 0,
-        "reacting_to_message_id": None,
         "reacting_to_char_name": None,
         "interrupt": False,
         "user_message_id": None,
+        "typing_multiplier": extra.get("typing_multiplier", 1.0),
     }
     base.update(extra)
     return base
@@ -178,10 +179,10 @@ def _virtual_message(**fields) -> dict:
         "responding_to_char_name": None,
         "responding_to_preview": None,
         "hesitation_ms": 0,
-        "reacting_to_message_id": None,
         "reacting_to_char_name": None,
         "interrupt": False,
         "user_message_id": None,
+        "typing_multiplier": fields.get("typing_multiplier", 1.0),
     }
     base.update(fields)
     return base
@@ -304,8 +305,8 @@ _INTROVERT_KEYWORDS = {
 def _classify_personality(description: str) -> tuple:
     """
     Classify character as extrovert/introvert/ambivert from their description.
-    Returns (label, expected_rate) where expected_rate is their natural
-    participation frequency (0.0 to 1.0).
+    Returns (label, expected_rate, typing_multiplier) where expected_rate is 
+    their natural participation frequency and typing_multiplier alters typing speed.
     """
     desc_lower = (description or "").lower()
     words = set(desc_lower.split())
@@ -314,16 +315,16 @@ def _classify_personality(description: str) -> tuple:
     int_score = len(words & _INTROVERT_KEYWORDS)
 
     if ext_score > int_score:
-        return "extrovert", 0.65  # expects to speak ~65% of turns
+        return "extrovert", 0.65, 0.7  # speaks ~65%, types 30% faster
     elif int_score > ext_score:
-        return "introvert", 0.20  # expects to speak ~20% of turns
+        return "introvert", 0.20, 1.3  # speaks ~20%, types 30% slower
     else:
-        return "ambivert", 0.40  # expects to speak ~40% of turns
+        return "ambivert", 0.40, 1.0   # speaks ~40%, types normal speed
 
 
 def _build_dynamics_briefing(
     db: Session, group_chat_id: int, participants: list
-) -> str:
+) -> tuple[str, int | None]:
     """
     Compute personality-weighted per-character activity stats.
     Returns a compact text block for the orchestrator.
@@ -356,7 +357,7 @@ def _build_dynamics_briefing(
         desc = p.character.description or ""
 
         # Personality classification
-        ptype, expected_rate = _classify_personality(desc)
+        ptype, expected_rate, typing_mult = _classify_personality(desc)
         expected_count = max(1, round(total_turns * expected_rate))
 
         # How many times this char spoke in the window
@@ -393,6 +394,7 @@ def _build_dynamics_briefing(
             f"last spoke {msgs_since} msgs ago ({label})"
         )
 
+    active_1on1_id = None
     # Detect 1-on-1 pattern (but NOT if current message is a group address)
     if total_turns >= 2:
         recent_user = [m for m in recent if m.role == "user"][-3:]
@@ -405,10 +407,11 @@ def _build_dynamics_briefing(
             if match:
                 addressed_chars.add(match.character_id)
         if len(addressed_chars) == 1:
-            solo_name = name_map.get(addressed_chars.pop(), "someone")
+            active_1on1_id = addressed_chars.pop()
+            solo_name = name_map.get(active_1on1_id, "someone")
             lines.append(f"- User seems to be in a 1-on-1 with {solo_name} (don't interrupt)")
 
-    return "\n".join(lines)
+    return "\n".join(lines), active_1on1_id
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -433,6 +436,28 @@ def _pick_reaction(sentiment: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Phase 3 Feature 2: Typos and Corrections
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _inject_typo(text: str) -> tuple[str, str | None]:
+    """
+    Randomly injects a typo by swapping two adjacent inner letters in a word.
+    Returns (typo_text, correction_text) or (original_text, None).
+    """
+    words = re.findall(r'\b[a-zA-Z]{5,}\b', text)
+    if not words:
+        return text, None
+    
+    target_word = random.choice(words)
+    idx = random.randint(1, len(target_word) - 3)
+    typo_word = target_word[:idx] + target_word[idx+1] + target_word[idx] + target_word[idx+2:]
+    
+    typo_text = text.replace(target_word, typo_word, 1)
+    return typo_text, f"*{target_word}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Feature 6: Character-to-Character Memory
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -441,13 +466,13 @@ def _relationship_namespace(group_chat_id: int) -> str:
     return f"grp_{group_chat_id}_relationships"
 
 
-async def _get_relationships(group_chat_id: int, char_id: int, participants: list) -> str:
+async def _get_relationships(group_chat_id: int, char_id: int, participants: list) -> tuple[str, dict]:
     """
     Retrieve this character's sentiment toward other characters from Pinecone.
-    Returns a compact context block.
+    Returns (context_block_string, dict_of_sentiments_by_target_id)
     """
     if not settings.rag_enabled:
-        return ""
+        return "", {}
     try:
         vector_store = get_vector_store()
         ns = _relationship_namespace(group_chat_id)
@@ -468,24 +493,26 @@ async def _get_relationships(group_chat_id: int, char_id: int, participants: lis
 
         lines = ["[Your relationships with others:]"]
         found = False
+        sentiments = {}
         for _vid, vec_data in fetched.get("vectors", {}).items():
             m = vec_data.get("metadata", {})
             from_c = int(m.get("from_char", 0))
             to_c = int(m.get("to_char", 0))
             if from_c == char_id:
                 sentiment = m.get("sentiment", "neutral")
+                sentiments[to_c] = sentiment
                 last_int = m.get("last_interaction", "")
                 to_name = name_map.get(to_c, "someone")
                 lines.append(f"- You feel {sentiment} toward {to_name}: \"{last_int[:80]}\"")
                 found = True
 
         if not found:
-            return ""
-        return "\n".join(lines)
+            return "", {}
+        return "\n".join(lines), sentiments
 
     except Exception as e:
         print(f"[Relationships] Error retrieving for char {char_id}: {e}")
-        return ""
+        return "", {}
 
 
 async def _update_relationships(
@@ -717,11 +744,13 @@ async def _orchestrate_turn(
         '   "respond"  = send a full message\n'
         '   "hesitate" = start typing then stop (shy chars)\n'
         '   "react"    = emoji reaction (introverts, small reactions)\n'
+        '   "defer_to" = say a short line passing the mic to another character\n'
         "5. reply_to: \"user\" | \"char:X\" | \"none\"\n"
         "6. eagerness: 1-10 (10=instant, 1=slow)\n"
         "7. interrupt: true only for impatient characters\n"
         "8. reaction_sentiment: only if action=react. "
-        "One of: amused, agree, surprised, annoyed, love, neutral\n\n"
+        "One of: amused, agree, surprised, annoyed, love, neutral\n"
+        "9. defer_target_id: REQUIRED if action=defer_to. The ID of the character they are passing to.\n\n"
         "Return ONLY a JSON array:\n"
         '[{"char_id": N, "reply_to": "user", "eagerness": 8, '
         '"action": "respond", "interrupt": false}]'
@@ -746,7 +775,7 @@ async def _orchestrate_turn(
         plan = json.loads(raw)
 
         valid_ids = {p.character_id for p in participants}
-        valid_actions = {"respond", "hesitate", "react"}
+        valid_actions = {"respond", "hesitate", "react", "defer_to"}
         validated = []
         seen_chars = set()
 
@@ -760,6 +789,11 @@ async def _orchestrate_turn(
 
             if entry.get("action", "respond") not in valid_actions:
                 entry["action"] = "respond"
+                
+            if entry["action"] == "defer_to":
+                if entry.get("defer_target_id") not in valid_ids:
+                    entry["action"] = "respond"
+                    
             if not isinstance(entry.get("eagerness", 5), (int, float)):
                 entry["eagerness"] = 5
             entry.setdefault("reply_to", "user")
@@ -1166,6 +1200,8 @@ async def send_group_message(
     name_map = {p.character_id: p.character.name for p in chat.participants}
     id_to_p = {p.character_id: p for p in chat.participants}
 
+    dynamics, active_1on1_id = _build_dynamics_briefing(db, chat.id, chat.participants)
+
     # ── 3. Determine the plan ─────────────────────────────────────────────
     # Build the address hint
     addressed_hint = ""
@@ -1176,6 +1212,7 @@ async def send_group_message(
             "You MUST STILL RETURN ONLY A JSON ARRAY. Do not output plain text.]"
         )
         print(f"[Group Chat] Group address detected → ALL characters should respond")
+        active_1on1_id = None  # Group override breaks 1-on-1 lock
     elif addressed_participant:
         aname = addressed_participant.character.name
         addressed_hint = (
@@ -1185,8 +1222,18 @@ async def send_group_message(
             f"You MUST STILL RETURN ONLY A JSON ARRAY.]"
         )
         print(f"[Group Chat] Fuzzy match hint → {aname} (MUST respond first, others may follow)")
+        active_1on1_id = addressed_participant.character_id  # Explicit address creates/updates lock
+    elif active_1on1_id:
+        # Sticky 1-on-1 hint
+        aname = name_map[active_1on1_id]
+        addressed_hint = (
+            f"\n[IMPORTANT: User is continuing a 1-on-1 context with {aname}. "
+            f"{aname} MUST be in the plan and MUST respond FIRST (highest eagerness). "
+            f"Anti-domination and quiet personality rules are IGNORED for {aname} during this conversation flow. "
+            f"Others should stay silent or only react. You MUST STILL RETURN ONLY A JSON ARRAY.]"
+        )
+        print(f"[Group Chat] Sticky 1-on-1 context detected → {aname} continues answering")
 
-    dynamics = _build_dynamics_briefing(db, chat.id, chat.participants)
     if addressed_hint:
         dynamics = dynamics + addressed_hint if dynamics else addressed_hint
 
@@ -1213,22 +1260,27 @@ async def send_group_message(
         if len(recent_char_ids) == 1:
             dominant_id = recent_char_ids.pop()
             dominant_name = name_map.get(dominant_id, "?")
-            # Remove the dominant character from respond actions
-            # (allow them to react/hesitate still)
-            plan_filtered = [
-                e for e in plan
-                if e["char_id"] != dominant_id or e.get("action") != "respond"
-            ]
-            # If nothing left, inject a random non-dominant participant
-            if not plan_filtered:
-                others = [p for p in chat.participants if p.character_id != dominant_id]
-                if others:
-                    alt = random.choice(others)
-                    plan_filtered = [{"char_id": alt.character_id, "reply_to": "user",
-                                      "eagerness": 7, "action": "respond", "interrupt": False}]
-                    print(f"[Anti-Dom] Forced swap: {dominant_name} → {alt.character.name}")
+            # Skip anti-domination if they are the sticky 1-on-1 target
+            if active_1on1_id == dominant_id:
+                print(f"[Anti-Dom] Skipped for {dominant_name} due to active 1-on-1 context.")
+                plan_filtered = plan
             else:
-                print(f"[Anti-Dom] Removed dominant {dominant_name} from respond list")
+                # Remove the dominant character from respond actions
+                # (allow them to react/hesitate still)
+                plan_filtered = [
+                    e for e in plan
+                    if e["char_id"] != dominant_id or e.get("action") != "respond"
+                ]
+                # If nothing left, inject a random non-dominant participant
+                if not plan_filtered:
+                    others = [p for p in chat.participants if p.character_id != dominant_id]
+                    if others:
+                        alt = random.choice(others)
+                        plan_filtered = [{"char_id": alt.character_id, "reply_to": "user",
+                                          "eagerness": 7, "action": "respond", "interrupt": False}]
+                        print(f"[Anti-Dom] Forced swap: {dominant_name} → {alt.character.name}")
+                else:
+                    print(f"[Anti-Dom] Removed dominant {dominant_name} from respond list")
             plan = plan_filtered if plan_filtered else plan
 
     # ── 4. Process each entry in the plan ─────────────────────────────────
@@ -1243,6 +1295,8 @@ async def send_group_message(
     def _snippet(text: str) -> str:
         return text[:MAX_MSG_LEN] + ("…" if len(text) > MAX_MSG_LEN else "")
 
+    has_responded = False
+
     for entry in plan:
         char_id: int = entry["char_id"]
         reply_to: str = entry.get("reply_to", "user")
@@ -1256,6 +1310,7 @@ async def send_group_message(
             continue
         char = p.character
         char_name = char.name
+        _, _, typing_mult = _classify_personality(char.description)
 
         # ── ACTION: HESITATE ──────────────────────────────────────────────
         if action == "hesitate":
@@ -1269,6 +1324,7 @@ async def send_group_message(
                 delay_ms=delay_ms,
                 hesitation_ms=hesitation_ms,
                 user_message_id=user_msg.id,
+                typing_multiplier=typing_mult,
             ))
             print(f"  {char_name}: hesitates ({hesitation_ms}ms)")
             continue
@@ -1301,11 +1357,18 @@ async def send_group_message(
                 reacting_to_message_id=react_target_id,
                 reacting_to_char_name=react_target_name,
                 user_message_id=user_msg.id,
+                typing_multiplier=typing_mult,
             ))
             print(f"  {char_name}: reacts {emoji}")
             continue
 
         # ── ACTION: RESPOND ───────────────────────────────────────────────
+
+        is_concurrent = False
+        if has_responded and eagerness >= 8:
+            is_concurrent = True
+            print(f"[Cross-Talk] {char_name} is highly eager. Typing concurrently!")
+        has_responded = True
 
         # Resolve reply target
         target_orm = None
@@ -1322,6 +1385,35 @@ async def send_group_message(
             except (ValueError, IndexError):
                 pass
 
+        # Relationship context (feature 6 & sentiment timing)
+        rel_context, sentiments_dict = await _get_relationships(chat.id, char.id, chat.participants)
+        
+        # Phase 3 Feature 3: Left on Read Mechanics
+        if action == "respond":
+            my_sentiment = "neutral"
+            if r_char_id and r_char_id in sentiments_dict:
+                my_sentiment = sentiments_dict[r_char_id].lower()
+                
+            if my_sentiment in ["annoyed", "angry", "hostile"] or (reply_to == "user" and eagerness <= 3 and random.random() < 0.15):
+                if random.random() < 0.3:  # 30% chance to leave on read
+                    action = "left_on_read"
+                    
+        if action == "left_on_read":
+            target_id = target_orm.id if target_orm else user_msg.id
+            result_messages.append(_virtual_message(
+                group_chat_id=chat.id,
+                character_id=char_id,
+                character_name=char_name,
+                character_avatar=char.avatar_url,
+                content="Read",
+                role="left_on_read",
+                delay_ms=delay_ms + 1500,
+                reacting_to_message_id=target_id,
+                user_message_id=user_msg.id,
+            ))
+            print(f"  {char_name}: leaves on read")
+            continue
+
         # Build conversation history context
         lines = ["[Group Conversation History:]"]
         for m in history_snapshot[-20:]:
@@ -1336,7 +1428,23 @@ async def send_group_message(
                 lines.append(f"{label}: {_snippet(prev['content'])}")
 
         # Role-specific context note
-        if reply_to.startswith("char:") and r_preview:
+        if action == "defer_to":
+            defer_target_id = entry.get("defer_target_id")
+            defer_target_name = name_map.get(defer_target_id, "someone")
+            note = (
+                f"\n[You are {char_name}. Give a very short response handing the conversation "
+                f"off to {defer_target_name}. Do not answer the user's question yourself.]"
+            )
+            # Add target to the plan to ensure they respond next
+            if defer_target_id and defer_target_id not in [e["char_id"] for e in plan]:
+                plan.append({
+                    "char_id": defer_target_id,
+                    "reply_to": f"char:{char_id}",
+                    "eagerness": eagerness + 1,
+                    "action": "respond",
+                    "interrupt": False
+                })
+        elif reply_to.startswith("char:") and r_preview:
             note = (
                 f"\n[You are {char_name}. Address the user's message, "
                 f"but also react to what {r_char_name} just added: \"{r_preview[:150]}\". "
@@ -1351,13 +1459,22 @@ async def send_group_message(
             note = f"\n[You are {char_name}. Respond to the user in character.]"
 
         lines.append(note)
+        # Add Double Texting Instruction
+        lines.append("\n[FORMATTING: If you want to send multiple short messages in a row (double texting), separate them with a blank line (\\n\\n).]")
         history_context = "\n".join(lines)
 
         # RAG context
         rag_context = await _retrieve_rag_context(chat.id, char.id, body.content)
-
-        # Relationship context (feature 6)
-        rel_context = await _get_relationships(chat.id, char.id, chat.participants)
+        
+        # Apply Sentiment-Linked Timing if replying to a specific character
+        if r_char_id and r_char_id in sentiments_dict:
+            my_sentiment = sentiments_dict[r_char_id].lower()
+            if my_sentiment in ["annoyed", "tense", "angry", "hostile"]:
+                delay_ms = max(0, delay_ms - 1500)  # Snappy / interruption
+                print(f"[Sentiment Timing] {char_name} is {my_sentiment} -> delay dropped to {delay_ms}ms")
+            elif my_sentiment in ["sad", "thoughtful", "reluctant", "awkward"]:
+                delay_ms += 1500  # Hesitant
+                print(f"[Sentiment Timing] {char_name} is {my_sentiment} -> delay increased to {delay_ms}ms")
 
         # System prompt
         system_prompt = build_system_prompt(
@@ -1398,39 +1515,87 @@ async def send_group_message(
             else:
                 response_text = f"*{char_name} is lost in thought...*"
 
-        # Save to DB
-        ai_msg = GroupMessage(
-            group_chat_id=chat.id,
-            character_id=char.id,
-            content=response_text,
-            role="assistant",
-            responding_to_message_id=target_orm.id if target_orm else None,
-        )
-        db.add(ai_msg)
-        db.commit()
-        db.refresh(ai_msg)
+        # Feature 5: Inter-Character Mentions
+        # If the generated text mentions someone else, they are compelled to respond
+        pinged_char = _fuzzy_match_character(response_text, chat.participants)
+        if pinged_char and pinged_char.character_id != char.id:
+            ping_id = pinged_char.character_id
+            if ping_id not in [e.get("char_id") for e in plan]:
+                plan.append({
+                    "char_id": ping_id,
+                    "reply_to": f"char:{char.id}",
+                    "eagerness": 9,
+                    "action": "respond",
+                    "interrupt": False
+                })
+                print(f"[Mentions] {char_name} mentioned/pinged {pinged_char.character.name} -> appended to plan")
 
-        # Index with enhanced metadata
-        if settings.rag_enabled:
-            await _index_message(
-                chat.id, char.id, response_text, "assistant", ai_msg.id,
-                turn_number=turn_number,
-                addressed_to=addressed_to,
-                responding_to=reply_to,
+        # Phase 3 Feature 2: Typos and Asterisk Corrections
+        typo_correction = None
+        if eagerness >= 7 and len(response_text) > 20:
+            if random.random() < 0.15:  # 15% chance
+                response_text, typo_correction = _inject_typo(response_text)
+                if typo_correction:
+                    print(f"[Typos] Injected typo for {char_name}: {typo_correction}")
+
+        # Split into double texts
+        msg_parts = [p.strip() for p in response_text.split("\n\n") if p.strip()]
+        if not msg_parts:
+            msg_parts = ["..."]
+            
+        if typo_correction:
+            msg_parts.append(typo_correction)
+
+        base_part_delay = delay_ms
+        for i, part_text in enumerate(msg_parts):
+            # Save to DB
+            ai_msg = GroupMessage(
+                group_chat_id=chat.id,
+                character_id=char.id,
+                content=part_text,
+                role="assistant",
+                responding_to_message_id=target_orm.id if target_orm and i == 0 else None,
             )
+            db.add(ai_msg)
+            db.commit()
+            db.refresh(ai_msg)
 
-        this_turn_orm[char_id] = ai_msg
-        this_turn_texts[char_id] = response_text
+            # Index with enhanced metadata
+            if settings.rag_enabled:
+                await _index_message(
+                    chat.id, char.id, part_text, "assistant", ai_msg.id,
+                    turn_number=turn_number,
+                    addressed_to=addressed_to,
+                    responding_to=reply_to,
+                )
 
-        result_messages.append(_serialize_message(
-            ai_msg,
-            delay_ms=delay_ms,
-            responding_to_char_id=r_char_id,
-            responding_to_char_name=r_char_name,
-            responding_to_preview=r_preview,
-            interrupt=is_interrupt,
-            user_message_id=user_msg.id,
-        ))
+            this_turn_orm[char_id] = ai_msg
+            this_turn_texts[char_id] = part_text  # Overwrites so relationship picks the last message
+
+            # Add incremental delay for double texts
+            part_delay = base_part_delay
+            if i > 0:
+                if part_text.startswith("*") and len(part_text) < 20:
+                    # Very fast typing delay for a realistic typo correction
+                    base_part_delay += random.randint(800, 1500)
+                else:
+                    # Normal typing gap between double texts
+                    prev_len = len(msg_parts[i-1])
+                    typing_time = min(3000, max(1000, prev_len * 18)) * typing_mult
+                    base_part_delay += typing_time + random.randint(300, 800)
+                part_delay = base_part_delay
+
+            result_messages.append(_serialize_message(
+                ai_msg,
+                delay_ms=part_delay,
+                responding_to_char_id=r_char_id if i == 0 else None,
+                responding_to_char_name=r_char_name if i == 0 else None,
+                responding_to_preview=r_preview if i == 0 else None,
+                interrupt=is_interrupt if i == 0 else False,
+                concurrent=is_concurrent if i == 0 else False,
+                user_message_id=user_msg.id,
+                typing_multiplier=typing_mult,
+            ))
 
     # ── 5. Update relationships (feature 6) ───────────────────────────────
     if len(this_turn_texts) >= 2:

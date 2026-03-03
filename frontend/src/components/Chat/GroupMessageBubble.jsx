@@ -85,6 +85,7 @@ export default function GroupMessageBubble({
     message,
     isLastInGroup = true,
     reactions = [],
+    readReceipts = [],
 }) {
     const isUser = message.role === 'user'
     const color = isUser ? 'var(--theme-primary)' : charColor(message.character_id)
@@ -189,6 +190,22 @@ export default function GroupMessageBubble({
 
                 {/* Reaction chips */}
                 <ReactionChips reactions={reactions} />
+
+                {/* Read receipts (Feature 3) */}
+                {readReceipts && readReceipts.length > 0 && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                        style={{
+                            marginTop: 4,
+                            alignSelf: isUser ? 'flex-end' : 'flex-start',
+                            fontSize: 11,
+                            color: '#9ca3af',
+                            fontStyle: 'italic',
+                        }}
+                    >
+                        Read by {readReceipts.map(r => r.charName).join(', ')}
+                    </motion.div>
+                )}
             </div>
         </motion.div>
     )
