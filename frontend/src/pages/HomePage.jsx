@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, MessageSquare, Loader2, Globe, Sparkles, ArrowRight, Zap, TrendingUp } from 'lucide-react'
+import { Plus, MessageSquare, Loader2, Globe, Sparkles, ArrowRight, Zap, TrendingUp, Users } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useChats } from '../hooks/useChats'
 import { useCharacters } from '../hooks/useCharacters'
 import ChatListItem from '../components/Chat/ChatListItem'
 import CharacterCard from '../components/Characters/CharacterCard'
+import CreateGroupChatModal from '../components/Chat/CreateGroupChatModal'
+import { getGroupChats, deleteGroupChat } from '../api/groupChats'
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -27,10 +29,27 @@ export default function HomePage() {
   const [selectedCharacter, setSelectedCharacter] = useState(null)
   const [creatingChat, setCreatingChat] = useState(false)
   const { startChat } = useChats()
+  const [showGroupModal, setShowGroupModal] = useState(false)
+  const [groupChats, setGroupChats] = useState([])
+  const [groupChatsLoading, setGroupChatsLoading] = useState(true)
+
+  useEffect(() => {
+    getGroupChats()
+      .then(res => setGroupChats(res.data || []))
+      .catch(() => setGroupChats([]))
+      .finally(() => setGroupChatsLoading(false))
+  }, [])
+
+  const handleDeleteGroupChat = async (id) => {
+    try {
+      await deleteGroupChat(id)
+      setGroupChats(prev => prev.filter(g => g.id !== id))
+    } catch { }
+  }
 
   const handleStartChat = async (character) => {
     if (creatingChat) return
-    
+
     try {
       setCreatingChat(true)
       const chat = await startChat(character.id)
@@ -53,7 +72,7 @@ export default function HomePage() {
   }
 
   return (
-    <motion.div 
+    <motion.div
       className="max-w-6xl mx-auto px-4 py-8"
       variants={containerVariants}
       initial="hidden"
@@ -76,7 +95,7 @@ export default function HomePage() {
         {[
           { label: 'Active Chats', value: chats.length, icon: MessageSquare },
           { label: 'Characters', value: characters.length, icon: Zap },
-          { label: 'Messages Today', value: '∞', icon: TrendingUp },
+          { label: 'Group Chats', value: groupChats.length, icon: Users },
         ].map((stat, i) => (
           <div key={i} className="glass-card rounded-xl p-4 text-center">
             <stat.icon className="w-5 h-5 mx-auto mb-2 text-[var(--theme-primary)]" />
@@ -87,7 +106,7 @@ export default function HomePage() {
       </motion.div>
 
       {/* Chub.ai Banner */}
-      <motion.div 
+      <motion.div
         variants={itemVariants}
         onClick={() => navigate('/chub')}
         className="mb-8 relative overflow-hidden rounded-2xl cursor-pointer group"
@@ -98,10 +117,10 @@ export default function HomePage() {
         <div className="absolute inset-0 opacity-30" style={{
           backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
         }} />
-        
+
         <div className="relative p-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <motion.div 
+            <motion.div
               className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm"
               whileHover={{ rotate: 360 }}
               transition={{ duration: 0.5 }}
@@ -121,7 +140,7 @@ export default function HomePage() {
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </div>
         </div>
-        
+
         {/* Animated gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent 
                       translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
@@ -145,7 +164,7 @@ export default function HomePage() {
               </div>
             </div>
           ) : chats.length === 0 ? (
-            <motion.div 
+            <motion.div
               className="glass-card rounded-2xl p-8 text-center"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -161,9 +180,9 @@ export default function HomePage() {
           ) : (
             <div className="space-y-3">
               {chats.slice(0, 5).map((chat, index) => (
-                <ChatListItem 
-                  key={chat.id} 
-                  chat={chat} 
+                <ChatListItem
+                  key={chat.id}
+                  chat={chat}
                   onDelete={handleDeleteChat}
                   index={index}
                 />
@@ -204,7 +223,7 @@ export default function HomePage() {
           ) : (
             <div className="space-y-3">
               {characters.slice(0, 4).map((character, index) => (
-                <div 
+                <div
                   key={character.id}
                   onClick={() => handleStartChat(character)}
                   className={`cursor-pointer ${creatingChat ? 'opacity-50 pointer-events-none' : ''}`}
@@ -221,6 +240,109 @@ export default function HomePage() {
           )}
         </motion.div>
       </div>
+
+      {/* Group Chats Section */}
+      <motion.div variants={itemVariants} className="mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+            <Users className="w-5 h-5 text-[var(--theme-secondary)]" />
+            Group Chats
+          </h2>
+          <motion.button
+            onClick={() => setShowGroupModal(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white"
+            style={{ background: 'linear-gradient(135deg, var(--theme-primary), var(--theme-secondary))' }}
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.97 }}
+          >
+            <Plus className="w-4 h-4" /> New Group Chat
+          </motion.button>
+        </div>
+
+        {groupChatsLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-[var(--theme-primary)]" />
+          </div>
+        ) : groupChats.length === 0 ? (
+          <motion.div
+            className="glass-card rounded-2xl p-8 text-center cursor-pointer"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            onClick={() => setShowGroupModal(true)}
+            whileHover={{ scale: 1.01 }}
+          >
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center"
+              style={{ background: 'linear-gradient(135deg, var(--theme-primary)22, var(--theme-secondary)22)' }}>
+              <Users className="w-8 h-8 text-[var(--theme-secondary)]" />
+            </div>
+            <p className="text-gray-300 font-medium">No group chats yet</p>
+            <p className="text-sm text-gray-500 mt-1">Click to create your first multi-character room</p>
+          </motion.div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {groupChats.map((gc, index) => {
+              const COLORS = ['var(--theme-primary)', 'var(--theme-secondary)', 'var(--theme-accent)', '#f97316', '#06b6d4', '#a855f7']
+              return (
+                <motion.div
+                  key={gc.id}
+                  className="glass-card rounded-xl p-4 cursor-pointer"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => navigate(`/group-chat/${gc.id}`)}
+                >
+                  <div className="flex items-center gap-3">
+                    {/* Stacked avatars */}
+                    <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                      {gc.participants.slice(0, 3).map((p, i) => (
+                        <div key={p.id} style={{ marginLeft: i === 0 ? 0 : -8, zIndex: gc.participants.length - i }}>
+                          {p.character_avatar ? (
+                            <img src={p.character_avatar} alt={p.character_name}
+                              style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${COLORS[i % COLORS.length]}` }} />
+                          ) : (
+                            <div style={{
+                              width: 28, height: 28, borderRadius: '50%',
+                              background: `${COLORS[i % COLORS.length]}33`, border: `2px solid ${COLORS[i % COLORS.length]}`,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 9, fontWeight: 700, color: COLORS[i % COLORS.length],
+                            }}>
+                              {p.character_name.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="text-white font-semibold text-sm truncate">{gc.title}</div>
+                      <div className="text-gray-500 text-xs truncate">{gc.participants.map(p => p.character_name).join(', ')}</div>
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); handleDeleteGroupChat(gc.id) }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4b5563', padding: 4 }}
+                      className="hover:text-red-500 transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {gc.last_message && (
+                    <p className="text-gray-500 text-xs mt-2 truncate">{gc.last_message}</p>
+                  )}
+                </motion.div>
+              )
+            })}
+          </div>
+        )}
+      </motion.div>
+
+      {/* Create Group Chat Modal */}
+      {showGroupModal && (
+        <CreateGroupChatModal
+          characters={characters}
+          onClose={() => setShowGroupModal(false)}
+        />
+      )}
     </motion.div>
   )
 }

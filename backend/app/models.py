@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -103,3 +103,67 @@ class Message(Base):
     
     # Relationships
     chat = relationship("Chat", back_populates="messages")
+
+
+# =============================================================================
+# Group Chat Models
+# =============================================================================
+
+class GroupChat(Base):
+    """A chat room with multiple AI characters."""
+    __tablename__ = "group_chats"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(200), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User")
+    participants = relationship(
+        "GroupChatParticipant",
+        back_populates="group_chat",
+        cascade="all, delete-orphan",
+        order_by="GroupChatParticipant.order",
+    )
+    messages = relationship(
+        "GroupMessage",
+        back_populates="group_chat",
+        cascade="all, delete-orphan",
+        order_by="GroupMessage.created_at",
+    )
+
+
+class GroupChatParticipant(Base):
+    """Links a Character to a GroupChat with a turn-order index."""
+    __tablename__ = "group_chat_participants"
+    __table_args__ = (UniqueConstraint("group_chat_id", "character_id"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_chat_id = Column(Integer, ForeignKey("group_chats.id"), nullable=False)
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
+    order = Column(Integer, default=0, nullable=False)  # Turn order within the room
+
+    # Relationships
+    group_chat = relationship("GroupChat", back_populates="participants")
+    character = relationship("Character")
+
+
+class GroupMessage(Base):
+    """A message in a GroupChat — either from the user or from a specific character."""
+    __tablename__ = "group_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_chat_id = Column(Integer, ForeignKey("group_chats.id"), nullable=False)
+    # NULL character_id = user message; non-NULL = AI response from that character
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
+    content = Column(Text, nullable=False)
+    role = Column(String(20), nullable=False)  # 'user' or 'assistant'
+    # Which prior message this is a reply to (NULL = stand-alone or reply to user)
+    responding_to_message_id = Column(Integer, ForeignKey("group_messages.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    group_chat = relationship("GroupChat", back_populates="messages")
+    character = relationship("Character")
