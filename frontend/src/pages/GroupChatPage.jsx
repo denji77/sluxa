@@ -77,7 +77,7 @@ export default function GroupChatPage() {
     const [chatMode, setChatMode] = useState(
         () => localStorage.getItem('chatMode') || 'descriptive'
     )
-    const [typingChar, setTypingChar] = useState(null)
+    const [typingChars, setTypingChars] = useState([])
 
     const handleModeChange = (m) => {
         setChatMode(m)

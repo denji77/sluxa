@@ -485,7 +485,7 @@ async def _get_relationships(group_chat_id: int, char_id: int, participants: lis
             all_ids.extend(page)
 
         if not all_ids:
-            return ""
+            return "", {}
 
         # Fetch metadata for all relationship vectors
         fetched = vector_store._index.fetch(ids=all_ids[:50], namespace=ns)
@@ -496,8 +496,12 @@ async def _get_relationships(group_chat_id: int, char_id: int, participants: lis
         sentiments = {}
         for _vid, vec_data in fetched.get("vectors", {}).items():
             m = vec_data.get("metadata", {})
-            from_c = int(m.get("from_char", 0))
-            to_c = int(m.get("to_char", 0))
+            try:
+                from_c = int(str(m.get("from_char", 0)).strip())
+                to_c = int(str(m.get("to_char", 0)).strip())
+            except ValueError:
+                continue
+                
             if from_c == char_id:
                 sentiment = m.get("sentiment", "neutral")
                 sentiments[to_c] = sentiment
@@ -568,10 +572,18 @@ async def _update_relationships(
         dummy_vec = [0.01] * settings.embedding_dimensions
 
         for pair in pairs:
-            from_c = pair.get("from")
-            to_c = pair.get("to")
+            raw_from = pair.get("from")
+            raw_to = pair.get("to")
             sentiment = pair.get("sentiment", "neutral")
-            if from_c is None or to_c is None:
+            
+            if raw_from is None or raw_to is None:
+                continue
+                
+            try:
+                from_c = int(str(raw_from).strip())
+                to_c = int(str(raw_to).strip())
+            except ValueError:
+                # LLM might have returned a string name instead of ID
                 continue
 
             vec_id = f"rel_{from_c}_{to_c}"
@@ -1334,17 +1346,30 @@ async def send_group_message(
             sentiment = entry.get("reaction_sentiment", "neutral")
             emoji = _pick_reaction(sentiment)
 
-            # Find the last non-user message to react to
             react_target_id = None
             react_target_name = None
-            if this_turn_orm:
-                last_char_id = list(this_turn_orm.keys())[-1]
-                react_target_id = this_turn_orm[last_char_id].id
-                react_target_name = name_map.get(last_char_id)
-            elif chat.messages:
-                # React to user's message
+
+            if reply_to == "user":
                 react_target_id = user_msg.id
                 react_target_name = user_name
+            elif reply_to.startswith("char:"):
+                try:
+                    target_id = int(reply_to.split(":")[1])
+                    if target_id in this_turn_orm:
+                        react_target_id = this_turn_orm[target_id].id
+                        react_target_name = name_map.get(target_id)
+                except (ValueError, IndexError):
+                    pass
+            
+            # Fallback if unresolvable
+            if not react_target_id:
+                if this_turn_orm:
+                    last_char_id = list(this_turn_orm.keys())[-1]
+                    react_target_id = this_turn_orm[last_char_id].id
+                    react_target_name = name_map.get(last_char_id)
+                else:
+                    react_target_id = user_msg.id
+                    react_target_name = user_name
 
             result_messages.append(_virtual_message(
                 group_chat_id=chat.id,
@@ -1501,10 +1526,11 @@ async def send_group_message(
                 history=[],
             )
             response = await gemini_chat.send_message(f"[Respond as {char_name} now.]")
-            response_text = response.text.strip()
-            response_text = replace_placeholders(response_text, user_name, char_name)
-            if mode == "normal":
-                response_text = extract_dialogue(response_text, char_name)
+            response_text = response.text.strip() if response.text else ""
+            if response_text:
+                response_text = replace_placeholders(response_text, user_name, char_name)
+                if mode == "normal":
+                    response_text = extract_dialogue(response_text, char_name)
             if not response_text:
                 response_text = "..."
         except Exception as e:

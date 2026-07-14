@@ -100,7 +100,7 @@ async def generate_response(
         response = await chat.send_message(user_message)
         
         # Extract text from response
-        response_text = response.text.strip()
+        response_text = response.text.strip() if (response and response.text) else ""
         
         # Clean up response if needed
         # Remove any potential system message leakage
