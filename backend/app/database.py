@@ -36,15 +36,25 @@ def init_db():
     # --- Lightweight migrations (idempotent) ---
     # create_all only creates NEW tables, not new columns.
     # Add any missing columns here so existing DBs are migrated.
+    migrations = [
+        (
+            "ALTER TABLE group_messages "
+            "ADD COLUMN responding_to_message_id INTEGER REFERENCES group_messages(id)",
+            "responding_to_message_id column on group_messages",
+        ),
+        (
+            "ALTER TABLE characters "
+            "ADD COLUMN lorebook_id INTEGER REFERENCES lorebooks(id)",
+            "lorebook_id column on characters",
+        ),
+    ]
     with engine.connect() as conn:
-        try:
-            conn.execute(text(
-                "ALTER TABLE group_messages "
-                "ADD COLUMN responding_to_message_id INTEGER REFERENCES group_messages(id)"
-            ))
-            conn.commit()
-            print("[DB] Added responding_to_message_id column to group_messages.")
-        except Exception:
-            # Column already exists — ignore
-            pass
+        for statement, description in migrations:
+            try:
+                conn.execute(text(statement))
+                conn.commit()
+                print(f"[DB] Added {description}.")
+            except Exception:
+                # Column already exists — ignore
+                pass
 

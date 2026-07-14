@@ -79,6 +79,10 @@ class GroupMessageSchema(BaseModel):
     reacting_to_char_name: Optional[str] = None
     # Interruption
     interrupt: bool = False
+    # Cross-talk: frontend types this message concurrently with the previous one
+    concurrent: bool = False
+    # Personality-based typing speed (extroverts type faster)
+    typing_multiplier: float = 1.0
     # User message ID (for syncing temp IDs in frontend)
     user_message_id: Optional[int] = None
 
@@ -193,6 +197,19 @@ def _virtual_message(**fields) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _extract_json(raw: str):
+    """
+    Parse JSON out of an LLM response, tolerating markdown code fences
+    and surrounding prose. (str.strip("```json") strips a character SET,
+    not a prefix, so it can't be used for this.)
+    """
+    text = raw.strip()
+    match = re.search(r"\[.*\]|\{.*\}", text, re.DOTALL)
+    if match:
+        text = match.group(0)
+    return json.loads(text)
+
+
 def _levenshtein(a: str, b: str) -> int:
     """Hand-rolled Levenshtein distance. No dependencies."""
     if len(a) < len(b):
@@ -206,6 +223,21 @@ def _levenshtein(a: str, b: str) -> int:
             curr.append(min(prev[j] + (ca != cb), prev[j + 1] + 1, curr[j] + 1))
         prev = curr
     return prev[-1]
+
+
+# Common English words that must never fuzzy-match a character name
+# (e.g. "can" is a prefix of "Candy", "the" of "Theodore", "want" ~ "Wanda")
+_MATCH_STOPWORDS = {
+    "the", "and", "you", "are", "for", "was", "can", "all", "not", "but",
+    "what", "who", "how", "hey", "yes", "yeah", "this", "that", "with",
+    "your", "just", "have", "like", "about", "them", "they", "then",
+    "there", "here", "when", "where", "why", "will", "would", "could",
+    "should", "some", "any", "one", "two", "get", "got", "let", "lets",
+    "was", "were", "been", "did", "does", "don", "dont", "its", "his",
+    "her", "him", "she", "our", "out", "now", "new", "too", "way",
+    "want", "wanna", "gonna", "going", "come", "know", "think", "tell",
+    "say", "said", "see", "look", "good", "well", "really", "very",
+}
 
 
 def _fuzzy_match_character(user_message: str, participants: list):
@@ -231,7 +263,7 @@ def _fuzzy_match_character(user_message: str, participants: list):
                 continue
             # Strip punctuation
             clean_word = word.strip(",.!?;:'\"")
-            if len(clean_word) < 3:
+            if len(clean_word) < 3 or clean_word in _MATCH_STOPWORDS:
                 continue
 
             # Exact full-name match
@@ -244,14 +276,16 @@ def _fuzzy_match_character(user_message: str, participants: list):
                 if clean_word == part:
                     return p
 
-                # Prefix match (3+ chars)
-                if len(clean_word) >= 3 and part.startswith(clean_word):
+                # Prefix match (4+ chars — 3 chars matches too many common words)
+                if len(clean_word) >= 4 and part.startswith(clean_word):
                     return p
 
-                # Levenshtein (for typos) — only for longer names
+                # Levenshtein (for typos) — only for longer names,
+                # stricter for short ones so e.g. "lunch" doesn't match "Luna"
                 if len(part) > 3:
+                    max_dist = 1 if len(part) <= 5 else 2
                     dist = _levenshtein(clean_word, part)
-                    if dist <= 2 and dist < best_score:
+                    if dist <= max_dist and dist < best_score:
                         best_score = dist
                         best_match = p
 
@@ -340,13 +374,13 @@ def _build_dynamics_briefing(
     recent.reverse()  # chronological
 
     if not recent:
-        return ""
+        return "", None
 
     # Count user messages (turns)
     user_msgs = [m for m in recent if m.role == "user"]
     total_turns = len(user_msgs)
     if total_turns == 0:
-        return ""
+        return "", None
 
     name_map = {p.character_id: p.character.name for p in participants}
     lines = ["[Conversation Dynamics (last {} turns):]".format(total_turns)]
@@ -563,8 +597,7 @@ async def _update_relationships(
                 max_output_tokens=150,
             ),
         )
-        raw = response.text.strip().strip("```json").strip("```").strip()
-        pairs = json.loads(raw)
+        pairs = _extract_json(response.text)
 
         vector_store = get_vector_store()
         ns = _relationship_namespace(group_chat_id)
@@ -783,8 +816,7 @@ async def _orchestrate_turn(
                 max_output_tokens=300,
             ),
         )
-        raw = response.text.strip().strip("```json").strip("```").strip()
-        plan = json.loads(raw)
+        plan = _extract_json(response.text)
 
         valid_ids = {p.character_id for p in participants}
         valid_actions = {"respond", "hesitate", "react", "defer_to"}
@@ -1159,6 +1191,13 @@ async def send_group_message(
         raise HTTPException(status_code=404, detail="Group chat not found.")
     if not chat.participants:
         raise HTTPException(status_code=400, detail="No participants.")
+    if not body.content.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    if len(body.content) > settings.message_max_length:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Message too long (max {settings.message_max_length} characters).",
+        )
 
     user_name = current_user.username or current_user.email or "User"
     mode = body.mode or "descriptive"

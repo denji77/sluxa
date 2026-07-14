@@ -1,7 +1,7 @@
 import sqlite3
 import os
 
-DB_PATH = "backend/sluxa.db"
+DB_PATH = "backend/slusha.db"
 
 def migrate():
     if not os.path.exists(DB_PATH):

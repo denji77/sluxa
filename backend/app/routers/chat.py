@@ -18,6 +18,7 @@ from ..ai.prompts import replace_placeholders
 from ..config import get_settings
 from ..rag.memory import MemoryManager, ensure_chat_indexed
 from ..rag.retriever import ContextRetriever, format_context_for_prompt
+from ..rag.vector_store import get_vector_store
 
 settings = get_settings()
 router = APIRouter(prefix="/chats", tags=["chats"])
@@ -59,6 +60,10 @@ async def create_chat(
     character = db.query(Character).filter(Character.id == chat_data.character_id).first()
     if not character:
         raise HTTPException(status_code=404, detail="Character not found")
+
+    # Private characters can only be used by their creator
+    if not character.is_default and character.created_by_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     # Create chat
     chat = Chat(
@@ -186,7 +191,15 @@ async def send_message(
     
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
-    
+
+    if not message_data.content.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    if len(message_data.content) > settings.message_max_length:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Message too long (max {settings.message_max_length} characters)"
+        )
+
     # Get user and character names for placeholder replacement
     user_name = current_user.username or current_user.email
     char_name = chat.character.name
@@ -277,7 +290,13 @@ async def send_message(
             time_context=time_context,
         )
     except Exception as e:
-        # Rollback user message if AI fails
+        # Rollback user message if AI fails (DB row + its Pinecone vector,
+        # which was already indexed above and would otherwise be orphaned)
+        if settings.rag_enabled:
+            try:
+                get_vector_store().delete_message(chat_id, user_message.id)
+            except Exception as cleanup_err:
+                print(f"Failed to clean up orphaned vector: {cleanup_err}")
         db.delete(user_message)
         db.commit()
         raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
@@ -305,10 +324,11 @@ async def send_message(
         except Exception as e:
             print(f"RAG indexing error for AI message: {e}")
     
-    # Update chat title if it's the first real message
-    if len(chat.messages) <= 2 and not chat.title.startswith("Chat with"):
-        pass  # Title already set
-    elif len(chat.messages) == 2:  # First user message + greeting
+    # Auto-title the chat on the user's FIRST message, if the title is still
+    # the default. (Counting user messages handles both greeting and
+    # no-greeting chats — the old total-count check skipped greeting chats.)
+    user_msg_count = sum(1 for m in chat.messages if m.role == "user")
+    if user_msg_count == 1 and (chat.title or "").startswith("Chat with"):
         try:
             new_title = await generate_chat_title(
                 message_data.content,
@@ -318,7 +338,11 @@ async def send_message(
             db.commit()
         except Exception:
             pass  # Keep default title
-    
+
+    # Expose the persisted user message ID so the frontend doesn't have to
+    # guess it (it previously assumed ai_message.id - 1, which breaks under
+    # concurrent writes)
+    ai_message.user_message_id = user_message.id
     return ai_message
 
 

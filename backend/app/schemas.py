@@ -28,6 +28,7 @@ class CharacterBase(BaseModel):
     description: str
     avatar_url: Optional[str] = None
     greeting: Optional[str] = None
+    lorebook_id: Optional[int] = None
 
 
 class CharacterCreate(CharacterBase):
@@ -62,7 +63,10 @@ class Message(MessageBase):
     id: int
     chat_id: int
     created_at: datetime
-    
+    # Set on send-message responses so the frontend can sync its optimistic
+    # user message with the real DB row (instead of guessing id - 1)
+    user_message_id: Optional[int] = None
+
     class Config:
         from_attributes = True
 

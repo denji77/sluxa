@@ -78,6 +78,9 @@ export default function GroupChatPage() {
         () => localStorage.getItem('chatMode') || 'descriptive'
     )
     const [typingChars, setTypingChars] = useState([])
+    // Mirrors sendLockRef in state — refs don't trigger re-renders, so the
+    // input would otherwise stay stuck disabled after a turn completes
+    const [isBusy, setIsBusy] = useState(false)
 
     const handleModeChange = (m) => {
         setChatMode(m)
@@ -206,6 +209,7 @@ export default function GroupChatPage() {
     const handleSend = async () => {
         if (sendLockRef.current || !input.trim()) return
         sendLockRef.current = true
+        setIsBusy(true)
 
         const text = input.trim()
         setInput('')
@@ -241,6 +245,7 @@ export default function GroupChatPage() {
             alert(err.response?.data?.detail || 'Failed to send message.')
         } finally {
             sendLockRef.current = false
+            setIsBusy(false)
             resetAmbientTimer() // Reset ambient timer after each send
         }
     }
@@ -307,7 +312,7 @@ export default function GroupChatPage() {
         }
     }, [loading, groupChat, resetAmbientTimer])
 
-    const isSending = typingChars.length > 0 || sendLockRef.current
+    const isSending = typingChars.length > 0 || isBusy
 
     // ── Render ──────────────────────────────────────────────────────────
 

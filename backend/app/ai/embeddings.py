@@ -16,13 +16,22 @@ settings = get_settings()
 # Initialize Gemini client
 _client = genai.Client(api_key=settings.google_api_key)
 
-# Cache for embeddings to avoid re-computing
+# Cache for embeddings to avoid re-computing (bounded FIFO so it can't
+# grow without limit over the server's lifetime)
 _embedding_cache: dict = {}
+_EMBEDDING_CACHE_MAX = 2000
 
 
 def _get_cache_key(text: str) -> str:
     """Generate a cache key for text."""
     return hashlib.md5(text.encode()).hexdigest()
+
+
+def _cache_put(key: str, vector: np.ndarray):
+    """Insert into the cache, evicting the oldest entry when full."""
+    if len(_embedding_cache) >= _EMBEDDING_CACHE_MAX:
+        _embedding_cache.pop(next(iter(_embedding_cache)))
+    _embedding_cache[key] = vector
 
 
 async def generate_embedding(text: str, use_cache: bool = True) -> np.ndarray:
@@ -60,8 +69,8 @@ async def generate_embedding(text: str, use_cache: bool = True) -> np.ndarray:
         
         # Cache result
         if use_cache:
-            _embedding_cache[cache_key] = vector
-            
+            _cache_put(cache_key, vector)
+
         return vector
         
     except Exception as e:

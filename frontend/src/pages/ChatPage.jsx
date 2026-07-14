@@ -65,9 +65,10 @@ export default function ChatPage() {
       // Replace temp message and add AI response
       setMessages(prev => {
         const filtered = prev.filter(m => m.id !== tempUserMessage.id)
-        // Add the actual user message (with real ID) and AI response
-        return [...filtered, 
-          { ...tempUserMessage, id: response.data.id - 1 }, // User message
+        // Backend returns the persisted user message ID alongside the AI reply
+        const userMessageId = response.data.user_message_id ?? response.data.id - 1
+        return [...filtered,
+          { ...tempUserMessage, id: userMessageId }, // User message
           { ...response.data, created_at: tempUserMessage.created_at } // AI response — same timestamp as user
         ]
       })
