@@ -21,8 +21,21 @@ PRE_PROMPT_DESCRIPTIVE = """
 - Keep a good balance between dialogue and description
 """.strip()
 
-# Pre-prompt for NORMAL mode - same as descriptive, we'll extract dialogue in post-processing
-PRE_PROMPT_NORMAL = PRE_PROMPT_DESCRIPTIVE
+# Pre-prompt for NORMAL mode (casual texting - no narration)
+PRE_PROMPT_NORMAL = """
+### Response Guidelines ###
+- You are texting the user. Write ONLY what the character would type in a chat app
+- Stay in character at all times
+- If asked about being an AI, respond as if it's an absurd joke
+- Never break character or acknowledge you are an AI
+
+### Formatting ###
+- NO asterisks, NO action descriptions, NO narration, NO scene setting
+- Do NOT wrap your reply in quotation marks
+- Do NOT prefix your reply with your name
+- Keep it short and natural, like a real text message (1-3 sentences)
+- Personality comes through word choice and tone, not description
+""".strip()
 
 # Keep the old PRE_PROMPT for backward compatibility
 PRE_PROMPT = PRE_PROMPT_DESCRIPTIVE
@@ -69,33 +82,41 @@ import re
 
 def extract_dialogue(text: str, char_name: str | None = None) -> str:
     """
-    Extract only the dialogue from a roleplay response.
-    Simply extracts all text within double quotes and joins them.
-    
+    Strip roleplay narration from a response, leaving casual chat text.
+
+    This is a safety net for casual mode -- PRE_PROMPT_NORMAL already asks the
+    model not to narrate. It only removes *action* segments and a leading name
+    prefix. It deliberately does NOT harvest quoted substrings: models use
+    quotation marks for emphasis and for quoting the user, so doing that
+    silently deleted the entire real reply and returned stray fragments.
+
     Args:
-        text: The full roleplay response
-        char_name: Optional character name (not used currently but kept for API compatibility)
-    
+        text: The full response
+        char_name: Optional character name, stripped if used as a "Name:" prefix
+
     Returns:
-        Just the dialogue text
+        The response with narration removed
     """
-    # Find all text within double quotes (standard dialogue markers)
-    # This handles: "dialogue here" and "more dialogue"
-    quoted_parts = re.findall(r'"([^"]+)"', text)
-    
-    if quoted_parts:
-        # Join all quoted dialogue parts with a space
-        dialogue = ' '.join(part.strip() for part in quoted_parts if part.strip())
-        if dialogue:
-            return dialogue
-    
-    # Fallback: If no quotes found, remove *actions* and return the rest
-    # Remove *action text*
-    cleaned = re.sub(r'\*[^*]+\*', '', text)
-    # Clean up extra whitespace
+    # Remove *action text* / **emphasised action** segments
+    cleaned = re.sub(r'\*{1,2}[^*]+\*{1,2}', ' ', text)
+
+    # Drop a leading "CharName:" speaker prefix if the model added one
+    if char_name:
+        cleaned = re.sub(
+            rf'^\s*{re.escape(char_name)}\s*:\s*', '', cleaned, flags=re.IGNORECASE
+        )
+
+    # Collapse whitespace left behind by the removals
     cleaned = ' '.join(cleaned.split())
-    
-    return cleaned.strip() if cleaned.strip() else text.strip()
+
+    # If the whole reply is wrapped in one pair of quotes, unwrap it
+    if len(cleaned) > 1 and cleaned[0] == '"' and cleaned[-1] == '"':
+        inner = cleaned[1:-1]
+        if '"' not in inner:
+            cleaned = inner.strip()
+
+    # Never return less than we were given if stripping ate everything
+    return cleaned if cleaned else text.strip()
 
 
 def build_system_prompt(

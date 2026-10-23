@@ -10,6 +10,8 @@ import ProfilePage from './pages/ProfilePage'
 import SignInPage from './pages/SignInPage'
 import SignUpPage from './pages/SignUpPage'
 import GroupChatPage from './pages/GroupChatPage'
+import FriendsPage from './pages/FriendsPage'
+import FriendChatPage from './pages/FriendChatPage'
 
 const pageTransition = {
   initial: { opacity: 0, y: 20, scale: 0.98 },
@@ -45,6 +47,8 @@ function AnimatedRoutes() {
           <Route path="/characters" element={<CharactersPage />} />
           <Route path="/chub" element={<ChubBrowsePage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/friends" element={<FriendsPage />} />
+          <Route path="/friends/:friendshipId" element={<FriendChatPage />} />
           <Route path="/chat/:chatId" element={<ChatPage />} />
           <Route path="/group-chat/:groupChatId" element={<GroupChatPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

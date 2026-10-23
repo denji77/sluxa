@@ -13,10 +13,151 @@ from ..config import get_settings
 from ..schemas import ChatMessage
 from .prompts import build_system_prompt, build_final_prompt, replace_placeholders, extract_dialogue
 
+import httpx
+from dataclasses import dataclass
+from typing import Any
+
 settings = get_settings()
 
-# Initialize Gemini client (instance-based)
-_client = genai.Client(api_key=settings.google_api_key)
+
+@dataclass
+class TextResponse:
+    text: str
+
+
+class GroqChatSession:
+    def __init__(self, system_instruction: str, history: list, model: str, temperature: float, top_p: float, max_tokens: int):
+        self.system_instruction = system_instruction
+        self.history = history or []
+        self.model = model or settings.ai_model
+        self.temperature = temperature
+        self.top_p = top_p
+        self.max_tokens = max_tokens
+
+    async def send_message(self, user_message: str) -> TextResponse:
+        messages = []
+        if self.system_instruction:
+            messages.append({"role": "system", "content": self.system_instruction})
+
+        for item in self.history:
+            if hasattr(item, "role") and hasattr(item, "parts"):
+                role = "assistant" if item.role in ["model", "assistant"] else "user"
+                part_text = ""
+                for p in item.parts:
+                    if hasattr(p, "text"):
+                        part_text += p.text
+                    elif isinstance(p, str):
+                        part_text += p
+                messages.append({"role": role, "content": part_text})
+            elif isinstance(item, dict):
+                role = "assistant" if item.get("role") in ["model", "assistant"] else "user"
+                messages.append({"role": role, "content": item.get("content", "")})
+
+        messages.append({"role": "user", "content": user_message})
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            headers = {
+                "Authorization": f"Bearer {settings.groq_api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "SluxaApp/1.0"
+            }
+            payload = {
+                "model": self.model or settings.ai_model,
+                "messages": messages,
+                "temperature": self.temperature,
+                "top_p": self.top_p,
+                "max_tokens": self.max_tokens,
+            }
+            resp = await client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
+            if resp.status_code != 200:
+                raise Exception(f"Groq API error ({resp.status_code}): {resp.text}")
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+            return TextResponse(text=content)
+
+
+class GroqChats:
+    def create(self, model: str, config: Any = None, history: list = None):
+        system_instruction = ""
+        temp = settings.ai_temperature
+        top_p = settings.ai_top_p
+        max_tokens = settings.ai_max_tokens
+        if config:
+            if hasattr(config, "system_instruction"):
+                system_instruction = config.system_instruction or ""
+            elif isinstance(config, dict):
+                system_instruction = config.get("system_instruction", "")
+            if hasattr(config, "temperature"):
+                temp = config.temperature if config.temperature is not None else temp
+            if hasattr(config, "top_p"):
+                top_p = config.top_p if config.top_p is not None else top_p
+            if hasattr(config, "max_output_tokens"):
+                max_tokens = config.max_output_tokens if config.max_output_tokens is not None else max_tokens
+
+        return GroqChatSession(
+            system_instruction=system_instruction,
+            history=history or [],
+            model=model or settings.ai_model,
+            temperature=temp,
+            top_p=top_p,
+            max_tokens=max_tokens,
+        )
+
+
+class GroqModels:
+    async def generate_content(self, model: str, contents: Any, config: Any = None) -> TextResponse:
+        prompt_text = contents if isinstance(contents, str) else str(contents)
+        temp = 0.3
+        max_tokens = 500
+        if config:
+            if hasattr(config, "temperature") and config.temperature is not None:
+                temp = config.temperature
+            if hasattr(config, "max_output_tokens") and config.max_output_tokens is not None:
+                max_tokens = config.max_output_tokens
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            headers = {
+                "Authorization": f"Bearer {settings.groq_api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "SluxaApp/1.0"
+            }
+            payload = {
+                "model": model or settings.ai_model,
+                "messages": [{"role": "user", "content": prompt_text}],
+                "temperature": temp,
+                "max_tokens": max_tokens,
+            }
+            resp = await client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
+            if resp.status_code != 200:
+                raise Exception(f"Groq API error ({resp.status_code}): {resp.text}")
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+            return TextResponse(text=content)
+
+
+class GroqAIO:
+    def __init__(self):
+        self.chats = GroqChats()
+        self.models = GroqModels()
+
+
+class GroqClientAdapter:
+    def __init__(self):
+        self.aio = GroqAIO()
+
+
+def _init_client():
+    if settings.ai_provider == "groq" or (settings.groq_api_key and not settings.google_api_key):
+        return GroqClientAdapter()
+    elif settings.google_api_key:
+        return genai.Client(api_key=settings.google_api_key)
+    elif settings.groq_api_key:
+        return GroqClientAdapter()
+    return GroqClientAdapter()
+
+
+# Global client instance
+_client = _init_client()
 
 
 def format_history_for_gemini(messages: List[ChatMessage]) -> List[types.Content]:

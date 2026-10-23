@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "Sluxa",
+    "slug": "sluxa",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "sluxa",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#070710",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sluxa.app"
+    },
+    "android": {
+      "package": "com.sluxa.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#070710",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-image",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "expo-font",
+      "expo-background-task",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#8B5CF6"
+        }
+      ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ab0bcc96-06db-4848-bc5d-2fa9a080e5b3"
+      }
+    }
+  }
+}

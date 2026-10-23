@@ -1,6 +1,6 @@
 import { UserButton } from '@clerk/clerk-react'
 import { Link, useLocation } from 'react-router-dom'
-import { MessageSquare, Users, Home, Globe, Sparkles, Loader2, Palette, User } from 'lucide-react'
+import { MessageSquare, Users, Home, Globe, Sparkles, Loader2, Palette, User, HeartHandshake } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState } from 'react'
 import { useApiAuth } from '../../hooks/useApiAuth'
@@ -17,11 +17,14 @@ export default function Layout({ children }) {
   const navItems = [
     { path: '/', icon: Home, label: 'Home' },
     { path: '/characters', icon: Users, label: 'Characters' },
+    { path: '/friends', icon: HeartHandshake, label: 'Friends' },
     { path: '/chub', icon: Globe, label: 'Chub.ai' },
   ]
 
   // Check if we're on a chat page for dark theme
-  const isChatPage = location.pathname.startsWith('/chat/')
+  const isChatPage =
+    location.pathname.startsWith('/chat/') ||
+    /^\/friends\/\d+/.test(location.pathname)
 
   // Show loading while auth is being set up
   if (!isReady) {

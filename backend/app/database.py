@@ -47,6 +47,14 @@ def init_db():
             "ADD COLUMN lorebook_id INTEGER REFERENCES lorebooks(id)",
             "lorebook_id column on characters",
         ),
+        (
+            "ALTER TABLE messages ADD COLUMN is_proactive BOOLEAN DEFAULT 0",
+            "is_proactive column on messages",
+        ),
+        (
+            "ALTER TABLE group_messages ADD COLUMN is_proactive BOOLEAN DEFAULT 0",
+            "is_proactive column on group_messages",
+        ),
     ]
     with engine.connect() as conn:
         for statement, description in migrations:

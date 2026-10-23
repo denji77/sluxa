@@ -32,8 +32,13 @@ class PineconeVectorStore:
     """
 
     def __init__(self):
-        pc = Pinecone(api_key=settings.pinecone_api_key)
-        self._index = pc.Index(settings.pinecone_index_name)
+        self._index = None
+        if settings.pinecone_api_key:
+            try:
+                pc = Pinecone(api_key=settings.pinecone_api_key)
+                self._index = pc.Index(settings.pinecone_index_name)
+            except Exception as e:
+                print(f"[Pinecone] Initialization warning: {e}")
 
     @staticmethod
     def _namespace(chat_id: int) -> str:

@@ -1044,6 +1044,12 @@ async def ambient_message(
     if not chat.participants:
         return None
 
+    # Characters stop chattering after a couple of unanswered unprompted
+    # messages — they only become active again once the user texts.
+    from ..proactive import _trailing_proactive_count
+    if _trailing_proactive_count(list(chat.messages)) >= settings.ambient_max_unanswered:
+        return None
+
     # 40% chance of silence — not every pause needs a message
     if random.random() < 0.4:
         return None
@@ -1140,12 +1146,13 @@ async def ambient_message(
         print(f"[Ambient] Generation failed for {char.name}: {e}")
         return None
 
-    # Save to DB
+    # Save to DB (flagged unprompted so the quiet-down counter sees it)
     msg = GroupMessage(
         group_chat_id=chat.id,
         character_id=char.id,
         content=text,
         role="assistant",
+        is_proactive=True,
     )
     db.add(msg)
     db.commit()

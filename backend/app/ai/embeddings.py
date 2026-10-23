@@ -13,8 +13,15 @@ from ..config import get_settings
 
 settings = get_settings()
 
-# Initialize Gemini client
-_client = genai.Client(api_key=settings.google_api_key)
+# Initialize Gemini client lazily
+_client = None
+
+
+def _get_gemini_client():
+    global _client
+    if _client is None and settings.google_api_key:
+        _client = genai.Client(api_key=settings.google_api_key)
+    return _client
 
 # Cache for embeddings to avoid re-computing (bounded FIFO so it can't
 # grow without limit over the server's lifetime)
@@ -54,9 +61,13 @@ async def generate_embedding(text: str, use_cache: bool = True) -> np.ndarray:
     if use_cache and cache_key in _embedding_cache:
         return _embedding_cache[cache_key]
     
+    client = _get_gemini_client()
+    if client is None:
+        return np.zeros(settings.embedding_dimensions, dtype=np.float32)
+
     try:
         # Generate embedding using new google.genai SDK
-        result = await _client.aio.models.embed_content(
+        result = await client.aio.models.embed_content(
             model=settings.embedding_model,
             contents=text,
             config=types.EmbedContentConfig(
@@ -87,8 +98,12 @@ async def generate_query_embedding(text: str) -> np.ndarray:
     if not text or not text.strip():
         return np.zeros(settings.embedding_dimensions, dtype=np.float32)
 
+    client = _get_gemini_client()
+    if client is None:
+        return np.zeros(settings.embedding_dimensions, dtype=np.float32)
+
     try:
-        result = await _client.aio.models.embed_content(
+        result = await client.aio.models.embed_content(
             model=settings.embedding_model,
             contents=text,
             config=types.EmbedContentConfig(
